@@ -45,10 +45,11 @@ python visualize_layer_metrics.py --layer <LAYER_NAME>
 - `--layer`: **Required** - Full layer name to analyze
 - `--cache_dir`: Cache directory for model weights (default: llm_weights)
 - `--nsamples`: Number of calibration samples (default: 128)
+- `--dataset`: Dataset for calibration - `wikitext2` (faster, default) or `c4` (larger, slower)
 
 **Example Commands:**
 ```bash
-# Analyze the query projection in the first layer
+# Analyze the query projection in the first layer (uses WikiText2 by default - fast)
 python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj
 
 # Analyze the gate projection in layer 10
@@ -56,6 +57,9 @@ python visualize_layer_metrics.py --layer model.layers.10.mlp.gate_proj
 
 # Analyze with custom number of samples
 python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj --nsamples 256
+
+# Use C4 dataset instead (slower but larger)
+python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj --dataset c4
 ```
 
 **Output:**
@@ -109,6 +113,8 @@ python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj --nsam
 ## Notes
 
 - All scripts require GPU for loading the model
-- Calibration data is downloaded automatically from the C4 dataset
+- By default, calibration data uses WikiText2 (small, fast to download)
+- Use `--dataset c4` if you want to match the exact Wanda paper setup (slower)
+- Datasets are automatically downloaded and cached on first run
 - Visualizations are saved to the current directory
 - The Wanda metric computation matches the implementation in `wanda/lib/prune.py`

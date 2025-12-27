@@ -46,7 +46,7 @@ def compute_activation_norm(activations):
     act_norm = torch.norm(act_reshaped, p=2, dim=0)
     return act_norm
 
-def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128):
+def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, dataset="wikitext2"):
     """
     Visualize weight magnitude, activation norm, and Wanda metric for a specific layer.
 
@@ -56,6 +56,7 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128):
         layer_name: Full name of the layer to analyze (e.g., 'model.layers.0.self_attn.q_proj')
         device: Device to run on
         nsamples: Number of calibration samples
+        dataset: Dataset to use for calibration ('wikitext2' or 'c4')
     """
     print(f"Analyzing layer: {layer_name}")
     print("=" * 80)
@@ -83,8 +84,10 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128):
     W_mag = torch.abs(W).cpu().numpy()
 
     # Capture activations
-    print("\nLoading calibration data...")
-    dataloader, _ = get_loaders("c4", nsamples=nsamples, seed=0, seqlen=model.seqlen, tokenizer=tokenizer)
+    print(f"\nLoading calibration data from {dataset}...")
+    print("(This may take a few moments on first run - dataset will be cached)")
+    dataloader, _ = get_loaders(dataset, nsamples=nsamples, seed=0, seqlen=model.seqlen, tokenizer=tokenizer)
+    print(f"Loaded {len(dataloader)} samples")
 
     print("Capturing activations...")
     activation_capture = ActivationCapture()
@@ -258,6 +261,8 @@ def main():
                         help='Directory to cache model weights')
     parser.add_argument('--nsamples', type=int, default=128,
                         help='Number of calibration samples')
+    parser.add_argument('--dataset', type=str, default='wikitext2', choices=['wikitext2', 'c4'],
+                        help='Dataset for calibration (default: wikitext2 - faster)')
 
     args = parser.parse_args()
 
@@ -283,7 +288,7 @@ def main():
     print(f"Using device: {device}")
 
     # Visualize the specified layer
-    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples)
+    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples, args.dataset)
 
 if __name__ == "__main__":
     main()
