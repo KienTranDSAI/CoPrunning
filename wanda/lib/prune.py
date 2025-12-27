@@ -90,6 +90,12 @@ def prepare_calibration_input(model, dataloader, device):
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
+
+    # Generate position_ids if not captured (for newer transformers versions)
+    if position_ids is None and attention_mask is not None:
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+
     model.config.use_cache = use_cache
 
     return inps, outs, attention_mask, position_ids 
@@ -255,6 +261,11 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
 
+    # Generate position_ids if not captured (for newer transformers versions)
+    if position_ids is None and attention_mask is not None:
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+
     print('Ready.')
 
     for i in range(len(layers)):
@@ -347,6 +358,11 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
+
+    # Generate position_ids if not captured (for newer transformers versions)
+    if position_ids is None and attention_mask is not None:
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
 
     print('Ready.')
 
