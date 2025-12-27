@@ -170,6 +170,7 @@ Sat Dec 27 14:12:42 2025
 
 - For structured N:M sparsity, `sparsity_ratio` must be 0.5
 - **Dataset choice**: Use `--dataset wikitext2` (default, ~2MB, fast) for quick experiments, or `--dataset c4` (hundreds of GB, slow download) to match the paper setup
+- **Memory requirements**: See [MEMORY_ESTIMATION.md](MEMORY_ESTIMATION.md) for detailed GPU memory requirements and optimization tips
 - Calibration uses 128 samples by default
 - Zero-shot evaluation requires downloading a modified version of EleutherAI LM Harness
 - Multi-GPU support via `device_map="auto"` for 30B/65B/70B models
