@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model weights and cache (large files)
+**/llm_weights/
+**/.cache/
+**/models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Hugging Face cache
+.huggingface/
+.cache/
+
