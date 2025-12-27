@@ -39,3 +39,11 @@ Thumbs.db
 .huggingface/
 .cache/
 
+# Generated visualizations
+assets/layer_analysis/*.png
+
+# Evaluation results
+results/*.json
+results/*.txt
+results/*.csv
+

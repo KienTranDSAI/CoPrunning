@@ -6,9 +6,15 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import argparse
 import sys
 import os
+from pathlib import Path
+
+# Get project root directory (CoPrunning/)
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+ASSETS_DIR = ROOT_DIR / "assets" / "layer_analysis"
 
 # Add wanda lib to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../wanda'))
+WANDA_LIB_PATH = ROOT_DIR / "wanda"
+sys.path.append(str(WANDA_LIB_PATH))
 from lib.data import get_loaders
 
 class ActivationCapture:
@@ -46,7 +52,7 @@ def compute_activation_norm(activations):
     act_norm = torch.norm(act_reshaped, p=2, dim=0)
     return act_norm
 
-def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, dataset="wikitext2", seqlen=2048):
+def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, dataset="wikitext2", seqlen=2048, output_dir=None):
     """
     Visualize weight magnitude, activation norm, and Wanda metric for a specific layer.
 
@@ -58,7 +64,10 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, 
         nsamples: Number of calibration samples
         dataset: Dataset to use for calibration ('wikitext2' or 'c4')
         seqlen: Sequence length for calibration (default: 2048)
+        output_dir: Directory to save visualizations (default: ROOT_DIR/assets/layer_analysis)
     """
+    if output_dir is None:
+        output_dir = ASSETS_DIR
     print(f"Analyzing layer: {layer_name}")
     print("=" * 80)
 
@@ -133,15 +142,45 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, 
         # Compute Wanda metric: |W| * sqrt(||activation||)
         # Broadcast activation norm to match weight shape
         act_norm_broadcast = np.sqrt(avg_act_norm).reshape(1, -1)
-        wanda_metric = W_mag * act_norm_broadcast
+
+        # Use float64 for better numerical stability
+        W_mag_64 = W_mag.astype(np.float64)
+        act_norm_broadcast_64 = act_norm_broadcast.astype(np.float64)
+        wanda_metric = W_mag_64 * act_norm_broadcast_64
+
+        print(f"Wanda metric range: [{wanda_metric.min():.2e}, {wanda_metric.max():.2e}]")
 
         # Create visualizations
-        create_visualizations(W_mag, avg_act_norm, wanda_metric, layer_name)
+        create_visualizations(W_mag, avg_act_norm, wanda_metric, layer_name, output_dir)
     else:
         print("Error: No activations were captured")
 
-def create_visualizations(W_mag, act_norm, wanda_metric, layer_name):
+def safe_stats(data):
+    """Compute statistics safely, handling inf/nan values"""
+    finite_data = data[np.isfinite(data)]
+    if len(finite_data) == 0:
+        return {'mean': 0, 'std': 0, 'min': 0, 'max': 0, 'median': 0}
+
+    return {
+        'mean': np.mean(finite_data),
+        'std': np.std(finite_data),
+        'min': np.min(finite_data),
+        'max': np.max(finite_data),
+        'median': np.median(finite_data)
+    }
+
+def create_visualizations(W_mag, act_norm, wanda_metric, layer_name, output_dir):
     """Create comprehensive visualizations of the metrics"""
+
+    # Create output directory if it doesn't exist
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for inf/nan values and replace them for visualization
+    num_invalid = np.sum(~np.isfinite(wanda_metric))
+    if num_invalid > 0:
+        print(f"Warning: Found {num_invalid} inf/nan values in Wanda metric ({100*num_invalid/wanda_metric.size:.2f}%)")
+        wanda_metric = np.nan_to_num(wanda_metric, nan=0.0, posinf=np.finfo(np.float64).max, neginf=0.0)
 
     fig = plt.figure(figsize=(20, 12))
 
@@ -169,14 +208,15 @@ def create_visualizations(W_mag, act_norm, wanda_metric, layer_name):
     # 3. Weight Magnitude Statistics
     ax3 = plt.subplot(3, 3, 3)
     ax3.axis('off')
+    w_stats = safe_stats(W_mag.flatten())
     stats_text = f"""
     Weight Magnitude Statistics:
 
-    Mean:    {W_mag.mean():.6f}
-    Std:     {W_mag.std():.6f}
-    Min:     {W_mag.min():.6f}
-    Max:     {W_mag.max():.6f}
-    Median:  {np.median(W_mag):.6f}
+    Mean:    {w_stats['mean']:.6f}
+    Std:     {w_stats['std']:.6f}
+    Min:     {w_stats['min']:.6f}
+    Max:     {w_stats['max']:.6f}
+    Median:  {w_stats['median']:.6f}
 
     Shape: {W_mag.shape}
     Total params: {W_mag.size}
@@ -206,14 +246,15 @@ def create_visualizations(W_mag, act_norm, wanda_metric, layer_name):
     # 6. Activation Norm Statistics
     ax6 = plt.subplot(3, 3, 6)
     ax6.axis('off')
+    a_stats = safe_stats(act_norm.flatten())
     stats_text = f"""
     Activation Norm Statistics:
 
-    Mean:    {act_norm.mean():.6f}
-    Std:     {act_norm.std():.6f}
-    Min:     {act_norm.min():.6f}
-    Max:     {act_norm.max():.6f}
-    Median:  {np.median(act_norm):.6f}
+    Mean:    {a_stats['mean']:.6f}
+    Std:     {a_stats['std']:.6f}
+    Min:     {a_stats['min']:.6f}
+    Max:     {a_stats['max']:.6f}
+    Median:  {a_stats['median']:.6f}
 
     Shape: {act_norm.shape}
     """
@@ -240,14 +281,15 @@ def create_visualizations(W_mag, act_norm, wanda_metric, layer_name):
     # 9. Wanda Metric Statistics
     ax9 = plt.subplot(3, 3, 9)
     ax9.axis('off')
+    wm_stats = safe_stats(wanda_metric.flatten())
     stats_text = f"""
     Wanda Metric Statistics:
 
-    Mean:    {wanda_metric.mean():.6f}
-    Std:     {wanda_metric.std():.6f}
-    Min:     {wanda_metric.min():.6f}
-    Max:     {wanda_metric.max():.6f}
-    Median:  {np.median(wanda_metric):.6f}
+    Mean:    {wm_stats['mean']:.6e}
+    Std:     {wm_stats['std']:.6e}
+    Min:     {wm_stats['min']:.6e}
+    Max:     {wm_stats['max']:.6e}
+    Median:  {wm_stats['median']:.6e}
 
     Shape: {wanda_metric.shape}
     """
@@ -258,7 +300,7 @@ def create_visualizations(W_mag, act_norm, wanda_metric, layer_name):
 
     # Save figure
     save_name = layer_name.replace('.', '_')
-    output_file = f'layer_analysis_{save_name}.png'
+    output_file = output_dir / f'layer_analysis_{save_name}.png'
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"\nVisualization saved to: {output_file}")
 
@@ -279,6 +321,8 @@ def main():
                         help='Dataset for calibration (default: wikitext2 - faster)')
     parser.add_argument('--seqlen', type=int, default=2048,
                         help='Sequence length for calibration (default: 2048)')
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help=f'Output directory for visualizations (default: {ASSETS_DIR})')
 
     args = parser.parse_args()
 
@@ -301,7 +345,7 @@ def main():
     print(f"Using device: {device}")
 
     # Visualize the specified layer
-    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples, args.dataset, args.seqlen)
+    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples, args.dataset, args.seqlen, args.output_dir)
 
 if __name__ == "__main__":
     main()

@@ -35,8 +35,11 @@ python main.py \
     --prune_method wanda \
     --sparsity_ratio 0.5 \
     --sparsity_type unstructured \
+    --dataset wikitext2 \
     --save out/llama_3.2_1b/unstructured/wanda/
 ```
+
+**Note:** Use `--dataset wikitext2` (default, faster) for quick testing, or `--dataset c4` to match the paper setup.
 
 **Structured N:M sparsity (2:4 pattern):**
 ```bash
@@ -124,6 +127,7 @@ chmod +x scripts/llama_7b.sh
 - `--prune_method`: Pruning method - `wanda`, `magnitude`, `sparsegpt`, or ablation variants
 - `--sparsity_ratio`: Target sparsity (0.0-1.0); must be 0.5 for N:M sparsity
 - `--sparsity_type`: `unstructured`, `2:4`, or `4:8`
+- `--dataset`: Calibration dataset - `wikitext2` (default, faster) or `c4` (paper setup)
 - `--nsamples`: Number of calibration samples (default: 128)
 - `--cache_dir`: Directory to cache model weights (default: `llm_weights`)
 - `--save`: Directory to save pruning results/logs
@@ -165,7 +169,8 @@ Sat Dec 27 14:12:42 2025
 ## Important Notes
 
 - For structured N:M sparsity, `sparsity_ratio` must be 0.5
+- **Dataset choice**: Use `--dataset wikitext2` (default, ~2MB, fast) for quick experiments, or `--dataset c4` (hundreds of GB, slow download) to match the paper setup
+- Calibration uses 128 samples by default
 - Zero-shot evaluation requires downloading a modified version of EleutherAI LM Harness
 - Multi-GPU support via `device_map="auto"` for 30B/65B/70B models
 - Results are saved in text format with actual sparsity and perplexity
-- Calibration uses 128 samples from C4 dataset by default

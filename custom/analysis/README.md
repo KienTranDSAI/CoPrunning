@@ -46,6 +46,8 @@ python visualize_layer_metrics.py --layer <LAYER_NAME>
 - `--cache_dir`: Cache directory for model weights (default: llm_weights)
 - `--nsamples`: Number of calibration samples (default: 128)
 - `--dataset`: Dataset for calibration - `wikitext2` (faster, default) or `c4` (larger, slower)
+- `--seqlen`: Sequence length for calibration (default: 2048)
+- `--output_dir`: Output directory for visualizations (default: ROOT_DIR/assets/layer_analysis)
 
 **Example Commands:**
 ```bash
@@ -67,7 +69,7 @@ python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj --data
   - **Weight Magnitude**: Heatmap, histogram, and statistics
   - **Activation Norm**: Bar plot, histogram, and statistics
   - **Wanda Metric**: Heatmap, histogram, and statistics
-- Saved PNG file: `layer_analysis_<layer_name>.png`
+- Saved PNG file: `assets/layer_analysis/layer_analysis_<layer_name>.png`
 
 ---
 
@@ -116,5 +118,7 @@ python visualize_layer_metrics.py --layer model.layers.0.self_attn.q_proj --data
 - By default, calibration data uses WikiText2 (small, fast to download)
 - Use `--dataset c4` if you want to match the exact Wanda paper setup (slower)
 - Datasets are automatically downloaded and cached on first run
-- Visualizations are saved to the current directory
+- Visualizations are saved to `assets/layer_analysis/` by default
+- The assets directory structure is tracked by git, but generated PNG files are ignored
+- For 16GB GPUs, use smaller `--seqlen` (e.g., 1024 or 2048) and fewer `--nsamples`
 - The Wanda metric computation matches the implementation in `wanda/lib/prune.py`
