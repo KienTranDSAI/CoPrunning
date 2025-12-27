@@ -274,6 +274,9 @@ def main():
     )
     model.eval()
 
+    # Set sequence length (required for data loader)
+    model.seqlen = model.config.max_position_embeddings
+
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
