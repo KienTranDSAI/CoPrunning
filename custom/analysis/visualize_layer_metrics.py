@@ -46,7 +46,7 @@ def compute_activation_norm(activations):
     act_norm = torch.norm(act_reshaped, p=2, dim=0)
     return act_norm
 
-def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, dataset="wikitext2"):
+def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, dataset="wikitext2", seqlen=2048):
     """
     Visualize weight magnitude, activation norm, and Wanda metric for a specific layer.
 
@@ -57,6 +57,7 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, 
         device: Device to run on
         nsamples: Number of calibration samples
         dataset: Dataset to use for calibration ('wikitext2' or 'c4')
+        seqlen: Sequence length for calibration (default: 2048)
     """
     print(f"Analyzing layer: {layer_name}")
     print("=" * 80)
@@ -85,8 +86,9 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, 
 
     # Capture activations
     print(f"\nLoading calibration data from {dataset}...")
+    print(f"Using sequence length: {seqlen}")
     print("(This may take a few moments on first run - dataset will be cached)")
-    dataloader, _ = get_loaders(dataset, nsamples=nsamples, seed=0, seqlen=model.seqlen, tokenizer=tokenizer)
+    dataloader, _ = get_loaders(dataset, nsamples=nsamples, seed=0, seqlen=seqlen, tokenizer=tokenizer)
     print(f"Loaded {len(dataloader)} samples")
 
     print("Capturing activations...")
@@ -101,14 +103,26 @@ def visualize_layer_metrics(model, tokenizer, layer_name, device, nsamples=128, 
         for i, batch in enumerate(dataloader):
             if i >= nsamples:
                 break
+
+            print(f"Processing sample {i+1}/{nsamples}...", end='\r')
+
             inputs = batch[0].to(device)
             _ = model(inputs)
 
             if activation_capture.input_activations is not None:
-                # Compute activation norm for this batch
+                # Compute activation norm for this batch and move to CPU immediately
                 act_norm = compute_activation_norm(activation_capture.input_activations)
-                activation_norms.append(act_norm)
+                activation_norms.append(act_norm.cpu())
 
+                # Clear activation cache to free GPU memory
+                activation_capture.input_activations = None
+                activation_capture.output_activations = None
+
+            # Delete inputs and clear GPU cache
+            del inputs
+            torch.cuda.empty_cache()
+
+    print()  # New line after progress
     hook.remove()
 
     # Average activation norms across all batches
@@ -263,6 +277,8 @@ def main():
                         help='Number of calibration samples')
     parser.add_argument('--dataset', type=str, default='wikitext2', choices=['wikitext2', 'c4'],
                         help='Dataset for calibration (default: wikitext2 - faster)')
+    parser.add_argument('--seqlen', type=int, default=2048,
+                        help='Sequence length for calibration (default: 2048)')
 
     args = parser.parse_args()
 
@@ -279,16 +295,13 @@ def main():
     )
     model.eval()
 
-    # Set sequence length (required for data loader)
-    model.seqlen = model.config.max_position_embeddings
-
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # Visualize the specified layer
-    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples, args.dataset)
+    visualize_layer_metrics(model, tokenizer, args.layer, device, args.nsamples, args.dataset, args.seqlen)
 
 if __name__ == "__main__":
     main()
