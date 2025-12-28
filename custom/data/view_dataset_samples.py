@@ -27,7 +27,7 @@ def view_wikitext2_samples(n_samples=3):
         if text.strip():  # Only show non-empty samples
             print(f"\n[Sample {i}]")
             print(f"Length: {len(text)} chars")
-            print(f"Text: {text[:300]}...")  # First 300 chars
+            print(f"Text: {text}")  # First 300 chars
 
     print(f"\n--- First {n_samples} Test Samples ---")
     for i in range(min(n_samples, len(testdata))):
@@ -35,7 +35,7 @@ def view_wikitext2_samples(n_samples=3):
         if text.strip():
             print(f"\n[Sample {i}]")
             print(f"Length: {len(text)} chars")
-            print(f"Text: {text[:300]}...")
+            print(f"Text: {text}")
 
 def view_c4_samples(n_samples=3):
     """View samples from C4 dataset"""
@@ -64,7 +64,7 @@ def view_c4_samples(n_samples=3):
         print(f"URL: {url}")
         print(f"Timestamp: {timestamp}")
         print(f"Length: {len(text)} chars")
-        print(f"Text: {text[:300]}...")
+        print(f"Text: {text}")
 
 def view_tokenized_samples(dataset_name='wikitext2', model_name='meta-llama/Llama-3.2-1B', n_samples=2):
     """View tokenized samples with a specific tokenizer"""
@@ -101,7 +101,7 @@ def view_tokenized_samples(dataset_name='wikitext2', model_name='meta-llama/Llam
 
         print(f"\n[Sample {i}]")
         print(f"Original text ({len(text)} chars):")
-        print(f"{text[:200]}...")
+        print(f"{text}")
         print(f"\nTokenized ({len(input_ids)} tokens):")
         print(f"Token IDs: {input_ids[:50].tolist()}...")  # First 50 tokens
         print(f"\nDecoded tokens (first 20):")
