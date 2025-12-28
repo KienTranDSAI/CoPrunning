@@ -77,14 +77,14 @@ def prepare_calibration_input(model, dataloader, device):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs['position_ids']
+            cache['position_ids'] = kwargs.get('position_ids', None)
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
             model(batch[0].to(device))
         except ValueError:
-            pass 
+            pass
     layers[0] = layers[0].module
 
     outs = torch.zeros_like(inps)
@@ -164,11 +164,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                # Only pass position_ids if it's not None (compatibility with newer transformers)
+                # Build kwargs for layer forward pass
+                layer_kwargs = {'attention_mask': attention_mask}
                 if position_ids is not None:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                    layer_kwargs['position_ids'] = position_ids
+                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -214,11 +214,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                # Only pass position_ids if it's not None (compatibility with newer transformers)
+                # Build kwargs for layer forward pass
+                layer_kwargs = {'attention_mask': attention_mask}
                 if position_ids is not None:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                    layer_kwargs['position_ids'] = position_ids
+                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
@@ -254,7 +254,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs['position_ids']
+            cache['position_ids'] = kwargs.get('position_ids', None)
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
@@ -299,11 +299,11 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            # Only pass position_ids if it's not None (compatibility with newer transformers)
+            # Build kwargs for layer forward pass
+            layer_kwargs = {'attention_mask': attention_mask}
             if position_ids is not None:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs['position_ids'] = position_ids
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -315,13 +315,13 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].free()
 
         for j in range(args.nsamples):
-            # Only pass position_ids if it's not None (compatibility with newer transformers)
+            # Build kwargs for layer forward pass
+            layer_kwargs = {'attention_mask': attention_mask}
             if position_ids is not None:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs['position_ids'] = position_ids
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
 
-        layers[i] = layer 
+        layers[i] = layer
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
@@ -360,7 +360,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs['position_ids']
+            cache['position_ids'] = kwargs.get('position_ids', None)
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
@@ -405,11 +405,11 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            # Only pass position_ids if it's not None (compatibility with newer transformers)
+            # Build kwargs for layer forward pass
+            layer_kwargs = {'attention_mask': attention_mask}
             if position_ids is not None:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs['position_ids'] = position_ids
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -428,13 +428,13 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].free()
 
         for j in range(args.nsamples):
-            # Only pass position_ids if it's not None (compatibility with newer transformers)
+            # Build kwargs for layer forward pass
+            layer_kwargs = {'attention_mask': attention_mask}
             if position_ids is not None:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs['position_ids'] = position_ids
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
 
-        layers[i] = layer 
+        layers[i] = layer
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
