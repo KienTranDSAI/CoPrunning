@@ -77,25 +77,19 @@ def prepare_calibration_input(model, dataloader, device):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs.get('position_ids', None)
+            cache['position_ids'] = kwargs['position_ids']
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
             model(batch[0].to(device))
         except ValueError:
-            pass
+            pass 
     layers[0] = layers[0].module
 
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
-
-    # Generate position_ids if not captured (for newer transformers versions)
-    if position_ids is None and attention_mask is not None:
-        position_ids = attention_mask.long().cumsum(-1) - 1
-        position_ids.masked_fill_(attention_mask == 0, 1)
-
     model.config.use_cache = use_cache
 
     return inps, outs, attention_mask, position_ids 
@@ -131,12 +125,11 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
             W[W_mask] = 0
 
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
-    use_cache = model.config.use_cache
-    model.config.use_cache = False
+    use_cache = model.config.use_cache 
+    model.config.use_cache = False 
 
-    dataset = getattr(args, 'dataset', 'c4')  # Default to c4 for backward compatibility
-    print(f"loading calibration data from {dataset}")
-    dataloader, _ = get_loaders(dataset,nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    print("loading calibdation data")
+    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
@@ -164,11 +157,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                # Build kwargs for layer forward pass
-                layer_kwargs = {'attention_mask': attention_mask}
-                if position_ids is not None:
-                    layer_kwargs['position_ids'] = position_ids
-                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         for h in handles:
             h.remove()
 
@@ -214,11 +203,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                # Build kwargs for layer forward pass
-                layer_kwargs = {'attention_mask': attention_mask}
-                if position_ids is not None:
-                    layer_kwargs['position_ids'] = position_ids
-                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
@@ -229,9 +214,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     ## SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
     print('Starting ...')
-    dataset = getattr(args, 'dataset', 'c4')  # Default to c4 for backward compatibility
-    print(f"loading calibration data from {dataset}")
-    dataloader, _ = get_loaders(dataset,nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -254,7 +237,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs.get('position_ids', None)
+            cache['position_ids'] = kwargs['position_ids']
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
@@ -268,11 +251,6 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
-
-    # Generate position_ids if not captured (for newer transformers versions)
-    if position_ids is None and attention_mask is not None:
-        position_ids = attention_mask.long().cumsum(-1) - 1
-        position_ids.masked_fill_(attention_mask == 0, 1)
 
     print('Ready.')
 
@@ -299,11 +277,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            # Build kwargs for layer forward pass
-            layer_kwargs = {'attention_mask': attention_mask}
-            if position_ids is not None:
-                layer_kwargs['position_ids'] = position_ids
-            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         for h in handles:
             h.remove()
 
@@ -315,13 +289,9 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].free()
 
         for j in range(args.nsamples):
-            # Build kwargs for layer forward pass
-            layer_kwargs = {'attention_mask': attention_mask}
-            if position_ids is not None:
-                layer_kwargs['position_ids'] = position_ids
-            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
 
-        layers[i] = layer
+        layers[i] = layer 
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
@@ -335,9 +305,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     ## SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
     print('Starting ...')
-    dataset = getattr(args, 'dataset', 'c4')  # Default to c4 for backward compatibility
-    print(f"loading calibration data from {dataset}")
-    dataloader, _ = get_loaders(dataset,nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -360,7 +328,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
-            cache['position_ids'] = kwargs.get('position_ids', None)
+            cache['position_ids'] = kwargs['position_ids']
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
@@ -374,11 +342,6 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
-
-    # Generate position_ids if not captured (for newer transformers versions)
-    if position_ids is None and attention_mask is not None:
-        position_ids = attention_mask.long().cumsum(-1) - 1
-        position_ids.masked_fill_(attention_mask == 0, 1)
 
     print('Ready.')
 
@@ -405,11 +368,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            # Build kwargs for layer forward pass
-            layer_kwargs = {'attention_mask': attention_mask}
-            if position_ids is not None:
-                layer_kwargs['position_ids'] = position_ids
-            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         for h in handles:
             h.remove()
 
@@ -428,13 +387,9 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].free()
 
         for j in range(args.nsamples):
-            # Build kwargs for layer forward pass
-            layer_kwargs = {'attention_mask': attention_mask}
-            if position_ids is not None:
-                layer_kwargs['position_ids'] = position_ids
-            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
+            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
 
-        layers[i] = layer
+        layers[i] = layer 
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps

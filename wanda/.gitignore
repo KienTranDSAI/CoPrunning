@@ -2,11 +2,3 @@
 .env
 *.pyc
 *.DS_Store
-
-# Model weights (large files)
-llm_weights/
-*.safetensors
-*.bin
-*.pt
-*.pth
-*.ckpt
