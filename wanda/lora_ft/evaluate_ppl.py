@@ -66,7 +66,7 @@ def evaluate_ppl(dataset_name, model, tokenizer, ctx_length):
         seq_len = encodings.input_ids.size(1)
     elif dataset_name == "c4":
         valdata = load_dataset(
-            'allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation'
+            'allenai/c4', 'en', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation'
         )
         encodings = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
         # encodings = encodings.input_ids[:, :(256 * model.seqlen)]

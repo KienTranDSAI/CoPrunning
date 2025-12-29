@@ -47,7 +47,7 @@ def view_c4_samples(n_samples=3):
     print("\nLoading C4 dataset (this may take a while)...")
     traindata = load_dataset(
         'allenai/c4',
-        'allenai--c4',
+        'en',
         data_files={'train': 'en/c4-train.00000-of-01024.json.gz'},
         split='train'
     )
@@ -83,7 +83,7 @@ def view_tokenized_samples(dataset_name='wikitext2', model_name='meta-llama/Llam
         print("Loading C4 dataset...")
         data = load_dataset(
             'allenai/c4',
-            'allenai--c4',
+            'en',
             data_files={'train': 'en/c4-train.00000-of-01024.json.gz'},
             split='train'
         )
