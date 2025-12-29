@@ -178,11 +178,10 @@ class BasePruner(ABC):
         for j in range(nsamples):
             with torch.no_grad():
                 # Build kwargs for layer forward pass
-                layer_kwargs = {}
-                if attention_mask is not None:
-                    layer_kwargs['attention_mask'] = attention_mask
-                if position_ids is not None:
-                    layer_kwargs['position_ids'] = position_ids
+                layer_kwargs = {
+                    'attention_mask': attention_mask,
+                    'position_ids': position_ids
+                }
 
                 # Forward pass: hooks will capture activations
                 outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
@@ -217,11 +216,10 @@ class BasePruner(ABC):
         # Forward pass again with pruned weights to compute outputs for next layer
         for j in range(nsamples):
             with torch.no_grad():
-                layer_kwargs = {}
-                if attention_mask is not None:
-                    layer_kwargs['attention_mask'] = attention_mask
-                if position_ids is not None:
-                    layer_kwargs['position_ids'] = position_ids
+                layer_kwargs = {
+                    'attention_mask': attention_mask,
+                    'position_ids': position_ids
+                }
 
                 outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
 

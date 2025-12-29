@@ -163,6 +163,13 @@ def prepare_calibration_input(model, dataloader, device):
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
+
+    # If position_ids is None, create it (needed for newer transformers versions)
+    if position_ids is None:
+        position_ids = torch.arange(
+            0, model.seqlen, dtype=torch.long, device=device
+        ).unsqueeze(0).expand(1, -1)
+
     model.config.use_cache = use_cache
 
     return inps, outs, attention_mask, position_ids
