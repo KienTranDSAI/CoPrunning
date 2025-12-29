@@ -6,7 +6,15 @@ Paper: https://arxiv.org/abs/2306.11695
 """
 
 import torch
-from .base_pruner import BasePruner
+import sys
+from pathlib import Path
+
+# Ensure pruning module can import base_pruner
+PRUNER_DIR = Path(__file__).parent.parent
+if str(PRUNER_DIR) not in sys.path:
+    sys.path.insert(0, str(PRUNER_DIR))
+
+from pruning.base_pruner import BasePruner
 
 
 class WandaPruner(BasePruner):

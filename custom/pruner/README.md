@@ -57,9 +57,13 @@ conda activate prune_llm
 
 ### Basic Usage
 
+All commands should be run from the `custom/pruner/` directory:
+
 ```bash
+cd custom/pruner
+
 # Unstructured 50% sparsity on LLaMA 3.2 1B
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --sparsity_type unstructured
@@ -69,7 +73,7 @@ python custom/pruner/wanda_pruner.py \
 
 **Unstructured sparsity** (any weights can be pruned):
 ```bash
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --sparsity_type unstructured \
@@ -79,7 +83,7 @@ python custom/pruner/wanda_pruner.py \
 
 **2:4 structured sparsity** (hardware-friendly):
 ```bash
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --sparsity_type 2:4 \
@@ -88,7 +92,7 @@ python custom/pruner/wanda_pruner.py \
 
 **4:8 structured sparsity** (more granular):
 ```bash
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --sparsity_type 4:8 \
@@ -99,7 +103,7 @@ python custom/pruner/wanda_pruner.py \
 
 **Use C4 for calibration** (more accurate, but slower):
 ```bash
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --sparsity_type unstructured \
@@ -109,7 +113,7 @@ python custom/pruner/wanda_pruner.py \
 
 **Custom sequence length**:
 ```bash
-python custom/pruner/wanda_pruner.py \
+python wanda_pruner.py \
     --model meta-llama/Llama-3.2-1B \
     --sparsity_ratio 0.5 \
     --seqlen 4096

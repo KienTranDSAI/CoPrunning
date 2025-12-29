@@ -8,6 +8,14 @@ Reference: wanda/main.py
 
 import argparse
 import os
+import sys
+from pathlib import Path
+
+# Add the custom/pruner directory to Python path
+PRUNER_DIR = Path(__file__).parent.resolve()
+if str(PRUNER_DIR) not in sys.path:
+    sys.path.insert(0, str(PRUNER_DIR))
+
 import torch
 from transformers import AutoTokenizer
 

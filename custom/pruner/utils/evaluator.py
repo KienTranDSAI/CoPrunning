@@ -6,7 +6,15 @@ Standalone reimplementation of wanda/lib/eval.py
 
 import torch
 import torch.nn as nn
-from .dataset_loader import get_loaders
+import sys
+from pathlib import Path
+
+# Ensure utils module can import dataset_loader
+PRUNER_DIR = Path(__file__).parent.parent
+if str(PRUNER_DIR) not in sys.path:
+    sys.path.insert(0, str(PRUNER_DIR))
+
+from utils.dataset_loader import get_loaders
 
 
 class PerplexityEvaluator:

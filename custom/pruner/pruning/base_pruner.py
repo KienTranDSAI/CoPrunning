@@ -7,9 +7,17 @@ Reference: wanda/lib/prune.py:127-222
 
 import torch
 from abc import ABC, abstractmethod
-from ..utils.model_utils import find_layers, prepare_calibration_input
-from ..utils.dataset_loader import get_loaders
-from ..utils.activation_capture import ActivationCapture
+
+# Import from utils modules
+import sys
+from pathlib import Path
+PRUNER_DIR = Path(__file__).parent.parent
+if str(PRUNER_DIR) not in sys.path:
+    sys.path.insert(0, str(PRUNER_DIR))
+
+from utils.model_utils import find_layers, prepare_calibration_input
+from utils.dataset_loader import get_loaders
+from utils.activation_capture import ActivationCapture
 
 
 class BasePruner(ABC):
