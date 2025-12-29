@@ -39,28 +39,48 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer):
 
 # Load and process c4 dataset
 def get_c4(nsamples, seed, seqlen, tokenizer):
-    # Load train and validation datasets
-    traindata = load_dataset('allenai/c4', 'en', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
-    valdata = load_dataset('allenai/c4', 'en', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation')
+    # Load train and validation datasets in streaming mode
+    # This avoids downloading the entire massive C4 dataset
+    traindata = load_dataset(
+        'allenai/c4',
+        'en',
+        split='train',
+        streaming=True
+    )
+    valdata = load_dataset(
+        'allenai/c4',
+        'en',
+        split='validation',
+        streaming=True
+    )
 
     # Generate samples from training set
     random.seed(seed)
     trainloader = []
-    for _ in range(nsamples):
-        while True:
-            i = random.randint(0, len(traindata) - 1)
-            trainenc = tokenizer(traindata[i]['text'], return_tensors='pt')
-            if trainenc.input_ids.shape[1] > seqlen:
-                break
-        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
-        j = i + seqlen
-        inp = trainenc.input_ids[:, i:j]
-        tar = inp.clone()
-        tar[:, :-1] = -100
-        trainloader.append((inp, tar))
 
-    # Prepare validation dataset
-    valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
+    # For streaming datasets, we need to iterate through the data
+    # Collect enough samples for calibration
+    for sample in traindata.shuffle(seed=seed, buffer_size=10000):
+        trainenc = tokenizer(sample['text'], return_tensors='pt')
+        if trainenc.input_ids.shape[1] > seqlen:
+            i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+            j = i + seqlen
+            inp = trainenc.input_ids[:, i:j]
+            tar = inp.clone()
+            tar[:, :-1] = -100
+            trainloader.append((inp, tar))
+
+            if len(trainloader) >= nsamples:
+                break
+
+    # Prepare validation dataset (take first 1100 samples)
+    val_samples = []
+    for i, sample in enumerate(valdata):
+        if i >= 1100:
+            break
+        val_samples.append(sample['text'])
+
+    valenc = tokenizer(' '.join(val_samples), return_tensors='pt')
     valenc = valenc.input_ids[:, :(256 * seqlen)]
     valenc = TokenizerWrapper(valenc)
     return trainloader, valenc
