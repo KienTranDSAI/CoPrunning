@@ -38,7 +38,7 @@ def main():
     # Load model with minimal memory usage
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-1B",
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         device_map="auto",
         low_cpu_mem_usage=True
     )

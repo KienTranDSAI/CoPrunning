@@ -169,7 +169,7 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         cache_dir=args.cache_dir,
         low_cpu_mem_usage=True,
         device_map="auto" if torch.cuda.is_available() else None

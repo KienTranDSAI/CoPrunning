@@ -75,7 +75,7 @@ def evaluate_model(model_path, tokenizer_path, dataset, seqlen, device, cache_di
     print("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         cache_dir=cache_dir,
         low_cpu_mem_usage=True,
         device_map="auto" if torch.cuda.is_available() else None
