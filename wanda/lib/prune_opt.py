@@ -154,7 +154,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs = {}
+                if attention_mask is not None:
+                    layer_kwargs['attention_mask'] = attention_mask
+                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -176,11 +179,14 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
                 W_mask.scatter_(1, indices, True)
 
-            subset[name].weight.data[W_mask] = 0  ## set weights to zero 
+            subset[name].weight.data[W_mask] = 0  ## set weights to zero
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                layer_kwargs = {}
+                if attention_mask is not None:
+                    layer_kwargs['attention_mask'] = attention_mask
+                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
@@ -252,7 +258,10 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            layer_kwargs = {}
+            if attention_mask is not None:
+                layer_kwargs['attention_mask'] = attention_mask
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -264,7 +273,10 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].free()
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            layer_kwargs = {}
+            if attention_mask is not None:
+                layer_kwargs['attention_mask'] = attention_mask
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
 
         layers[i] = layer 
         torch.cuda.empty_cache()
@@ -341,7 +353,10 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            layer_kwargs = {}
+            if attention_mask is not None:
+                layer_kwargs['attention_mask'] = attention_mask
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         for h in handles:
             h.remove()
 
@@ -354,14 +369,17 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             elif args.prune_method == "ablate_mag_seq":
                 prune_mask = gpts[name].get_mag_mask(args.sparsity_ratio, prune_n, prune_m)
             elif "iter" in args.prune_method:
-                prune_mask = None 
+                prune_mask = None
 
-            gpts[name].fasterprune(args, args.sparsity_ratio, mask=prune_mask, 
+            gpts[name].fasterprune(args, args.sparsity_ratio, mask=prune_mask,
                                         prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
             gpts[name].free()
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            layer_kwargs = {}
+            if attention_mask is not None:
+                layer_kwargs['attention_mask'] = attention_mask
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
 
         layers[i] = layer 
         torch.cuda.empty_cache()
