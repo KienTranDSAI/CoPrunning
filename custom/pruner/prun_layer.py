@@ -277,7 +277,7 @@ def main():
 
     # Model configuration
     parser.add_argument(
-        '--model', type=str, default='meta-llama/Llama-3.2-1B',
+        '--model', type=str, default='MiniCPM-2B-sft-bf16',
         help='HuggingFace model identifier'
     )
     parser.add_argument(
