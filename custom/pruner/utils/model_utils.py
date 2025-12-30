@@ -6,7 +6,7 @@ Standalone reimplementation of core utilities from wanda/lib/prune.py and wanda/
 
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoConfig
 
 
 def load_model(model_name, cache_dir="llm_weights", seqlen=2048):
@@ -24,8 +24,18 @@ def load_model(model_name, cache_dir="llm_weights", seqlen=2048):
         Loaded model with custom seqlen attribute
     """
     print(f"Loading model: {model_name}")
+
+    # Load config first with trust_remote_code to avoid double prompts
+    config = AutoConfig.from_pretrained(
+        model_name,
+        cache_dir=cache_dir,
+        trust_remote_code=True
+    )
+
+    # Load model with the config
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
+        config=config,
         dtype=torch.float16,
         cache_dir=cache_dir,
         low_cpu_mem_usage=True,
