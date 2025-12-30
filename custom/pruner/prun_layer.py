@@ -3,16 +3,19 @@ Prune a single layer and analyze activation differences before/after pruning.
 
 This script reuses existing pruning infrastructure from the pruning module.
 
-# Prune layer 0 with 50% unstructured sparsity
-  python prun_layer.py --layer_idx 0 --sparsity_ratio 0.5 --nsamples
-  10
+Usage examples:
+
+  # Print all layers and their indices
+  python prun_layer.py --print_layers
+
+  # Prune layer 0 with 50% unstructured sparsity
+  python prun_layer.py --layer_idx 0 --sparsity_ratio 0.5 --nsamples 10
 
   # Prune layer 5 with 2:4 structured sparsity
   python prun_layer.py --layer_idx 5 --sparsity_type 2:4 --nsamples 10
 
   # Save plot to custom location
-  python prun_layer.py --layer_idx 0 --save_plot
-  results/layer0_analysis.png
+  python prun_layer.py --layer_idx 0 --save_plot results/layer0_analysis.png
 """
 
 
@@ -38,6 +41,45 @@ from utils.dataset_loader import get_loaders
 from utils.activation_capture import ActivationCapture
 from pruning.sparsity_patterns import UnstructuredSparsity, NMSparsity
 from pruning.wanda import WandaPruner
+
+
+def print_model_layers(model):
+    """
+    Print all transformer layers in the model with their indices.
+
+    This helps identify which layer_idx to use for pruning.
+
+    Args:
+        model: The loaded model
+    """
+    layers = model.model.layers
+    num_layers = len(layers)
+
+    print("\n" + "="*80)
+    print(f"MODEL LAYER STRUCTURE ({num_layers} transformer layers)")
+    print("="*80)
+
+    for i, layer in enumerate(layers):
+        # Get layer type name
+        layer_type = type(layer).__name__
+
+        # Count sublayers (Linear layers)
+        sublayers = find_layers(layer)
+        num_sublayers = len(sublayers)
+
+        print(f"Layer {i:3d}: {layer_type:30s} ({num_sublayers} Linear sublayers)")
+
+        # Print first few sublayer names as examples
+        if num_sublayers > 0:
+            sample_names = list(sublayers.keys())[:3]
+            for name in sample_names:
+                print(f"         ├─ {name}")
+            if num_sublayers > 3:
+                print(f"         └─ ... and {num_sublayers - 3} more")
+
+    print("="*80)
+    print(f"\nTo prune a specific layer, use: --layer_idx <0-{num_layers-1}>")
+    print("="*80 + "\n")
 
 
 def capture_layer_activations(layer, inputs, attention_mask, position_ids, nsamples):
@@ -318,6 +360,12 @@ def main():
         help='Path to save analysis plot (optional)'
     )
 
+    # Utility options
+    parser.add_argument(
+        '--print_layers', action='store_true',
+        help='Print all model layers and their indices, then exit'
+    )
+
     args = parser.parse_args()
 
     # Print configuration
@@ -340,10 +388,16 @@ def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # If --print_layers flag is set, print layer structure and exit
+    if args.print_layers:
+        print_model_layers(model)
+        return
+
     # Check layer index
     num_layers = len(model.model.layers)
     if args.layer_idx >= num_layers:
         print(f"Error: layer_idx={args.layer_idx} but model only has {num_layers} layers")
+        print(f"\nUse --print_layers to see all available layers")
         return
 
     # Select sparsity pattern
