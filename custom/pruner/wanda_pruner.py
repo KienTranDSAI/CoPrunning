@@ -93,7 +93,7 @@ def main():
     print("="*80)
 
     # Load model and tokenizer
-    print("\n[1/5] Loading model and tokenizer...")
+    print("\n[1/6] Loading model and tokenizer...")
     model = load_model(args.model, args.cache_dir, args.seqlen)
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
@@ -102,7 +102,7 @@ def main():
     print(f"Using device: {device}")
 
     # Select sparsity pattern
-    print(f"\n[2/5] Initializing {args.sparsity_type} sparsity pattern...")
+    print(f"\n[2/6] Initializing {args.sparsity_type} sparsity pattern...")
     if args.sparsity_type == 'unstructured':
         sparsity_pattern = UnstructuredSparsity()
     elif args.sparsity_type == '2:4':
@@ -120,8 +120,14 @@ def main():
             args.sparsity_ratio = 0.5
         sparsity_pattern = NMSparsity(n=4, m=8)
 
+    # Evaluate original model perplexity
+    print(f"\n[3/6] Evaluating original model perplexity...")
+    evaluator = PerplexityEvaluator(model, tokenizer)
+    original_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+    print(f"Original model perplexity: {original_ppl:.2f}")
+
     # Create pruner
-    print(f"\n[3/5] Running Wanda pruning...")
+    print(f"\n[4/6] Running Wanda pruning...")
     pruner = WandaPruner(model, tokenizer, device)
 
     # Run pruning
@@ -134,14 +140,13 @@ def main():
     )
 
     # Check actual sparsity achieved
-    print(f"\n[4/5] Checking sparsity...")
+    print(f"\n[5/6] Checking sparsity...")
     actual_sparsity = check_sparsity(model)
     print(f"\nTarget sparsity: {args.sparsity_ratio:.4f}")
     print(f"Actual sparsity: {actual_sparsity:.4f}")
 
-    # Evaluate perplexity
-    print(f"\n[5/5] Evaluating perplexity...")
-    evaluator = PerplexityEvaluator(model, tokenizer)
+    # Evaluate pruned model perplexity
+    print(f"\n[6/6] Evaluating pruned model perplexity...")
     ppl = evaluator.evaluate(dataset="wikitext2", device=device)
 
     # Print results
@@ -152,7 +157,9 @@ def main():
     print(f"Sparsity type: {args.sparsity_type}")
     print(f"Target sparsity: {args.sparsity_ratio:.4f}")
     print(f"Actual sparsity: {actual_sparsity:.4f}")
-    print(f"WikiText2 Perplexity: {ppl:.2f}")
+    print(f"Original WikiText2 Perplexity: {original_ppl:.2f}")
+    print(f"Pruned WikiText2 Perplexity: {ppl:.2f}")
+    print(f"Perplexity Increase: {ppl - original_ppl:.2f} ({((ppl - original_ppl) / original_ppl * 100):.2f}%)")
     print("="*80)
 
     # Save results log
@@ -169,7 +176,10 @@ def main():
             f.write(f"Calibration dataset: {args.dataset}\n")
             f.write(f"Calibration samples: {args.nsamples}\n")
             f.write(f"Sequence length: {args.seqlen}\n")
-            f.write(f"WikiText2 Perplexity: {ppl:.2f}\n")
+            f.write(f"\nPerplexity Results:\n")
+            f.write(f"Original WikiText2 Perplexity: {original_ppl:.2f}\n")
+            f.write(f"Pruned WikiText2 Perplexity: {ppl:.2f}\n")
+            f.write(f"Perplexity Increase: {ppl - original_ppl:.2f} ({((ppl - original_ppl) / original_ppl * 100):.2f}%)\n")
 
     # Save pruned model
     if args.save_model:
