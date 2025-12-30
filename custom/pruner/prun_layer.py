@@ -471,8 +471,13 @@ def main():
     )
     print(f"Captured pre-pruning activation tensor: {pre_activations.shape}")
 
+    # Move pre_activations to CPU to free GPU memory
+    pre_activations = pre_activations.cpu()
+    print("Moved pre-pruning activations to CPU")
+
     # Clean up pre-pruning forward pass
-    del inps, outs
+    del inps, outs, target_layer, layers
+    del pruner  # Delete pruner which holds reference to model
     torch.cuda.empty_cache()
 
     # Reload model for pruning (to start fresh and avoid any gradient accumulation)
@@ -496,9 +501,17 @@ def main():
     )
     print(f"Captured post-pruning activation tensor: {post_activations.shape}")
 
+    # Move post_activations to CPU for analysis (free GPU memory)
+    post_activations = post_activations.cpu()
+    print("Moved post-pruning activations to CPU")
+
     model.config.use_cache = use_cache
 
-    # Analyze differences
+    # Clean up GPU memory before analysis
+    del inps_post, target_layer_post
+    torch.cuda.empty_cache()
+
+    # Analyze differences (both tensors now on CPU)
     diff_stats, all_diffs, all_rel_diffs = analyze_activation_differences(
         pre_activations, post_activations, args.nsamples
     )
