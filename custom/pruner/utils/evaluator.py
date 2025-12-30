@@ -51,6 +51,10 @@ class PerplexityEvaluator:
         """
         print(f"Evaluating perplexity on {dataset}")
 
+        # Disable cache to avoid version compatibility issues
+        use_cache = self.model.config.use_cache
+        self.model.config.use_cache = False
+
         # Load test data
         _, testenc = get_loaders(
             dataset, seed=0, seqlen=self.model.seqlen, tokenizer=self.tokenizer
@@ -59,6 +63,9 @@ class PerplexityEvaluator:
         # Compute perplexity
         with torch.no_grad():
             ppl = self._compute_ppl(testenc, device)
+
+        # Restore cache setting
+        self.model.config.use_cache = use_cache
 
         return ppl
 
