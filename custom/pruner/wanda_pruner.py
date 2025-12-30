@@ -36,7 +36,7 @@ def main():
         help='HuggingFace model identifier'
     )
     parser.add_argument(
-        '--cache_dir', type=str, default='llm_weights',
+        '--cache_dir', type=str, default='../../llm_weights',
         help='Directory to cache model weights'
     )
     parser.add_argument(
@@ -95,7 +95,7 @@ def main():
     # Load model and tokenizer
     print("\n[1/6] Loading model and tokenizer...")
     model = load_model(args.model, args.cache_dir, args.seqlen)
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, trust_remote_code=True)
 
     # Determine device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

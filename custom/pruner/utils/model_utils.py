@@ -29,7 +29,8 @@ def load_model(model_name, cache_dir="llm_weights", seqlen=2048):
         dtype=torch.float16,
         cache_dir=cache_dir,
         low_cpu_mem_usage=True,
-        device_map="auto"
+        device_map="auto",
+        trust_remote_code=True
     )
 
     # Set sequence length (capped by model's max position embeddings)
