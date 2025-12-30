@@ -52,9 +52,10 @@ def capture_layer_activations(layer, inputs, attention_mask, position_ids, nsamp
         nsamples: Number of samples
 
     Returns:
-        List of output tensors for each sample
+        Tensor of stacked activation outputs (nsamples, seqlen, hidden_size)
     """
-    activations = []
+    # Pre-allocate output buffer (memory efficient)
+    outputs = torch.zeros_like(inputs)
 
     with torch.no_grad():
         for j in range(nsamples):
@@ -63,11 +64,10 @@ def capture_layer_activations(layer, inputs, attention_mask, position_ids, nsamp
                 'position_ids': position_ids
             }
 
-            # Forward pass through the layer
-            out = layer(inputs[j].unsqueeze(0), **layer_kwargs)[0]
-            activations.append(out.clone())
+            # Forward pass through the layer - write directly to buffer
+            outputs[j] = layer(inputs[j].unsqueeze(0), **layer_kwargs)[0]
 
-    return activations
+    return outputs
 
 
 def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
@@ -150,8 +150,8 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
     Analyze differences between pre- and post-pruning activations.
 
     Args:
-        pre_activations: List of pre-pruning activation tensors
-        post_activations: List of post-pruning activation tensors
+        pre_activations: Pre-pruning activation tensor (nsamples, seqlen, hidden_size)
+        post_activations: Post-pruning activation tensor (nsamples, seqlen, hidden_size)
         nsamples: Number of samples
 
     Returns:
@@ -159,24 +159,15 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
     """
     print("\nAnalyzing activation differences...")
 
-    all_diffs = []
-    all_rel_diffs = []
+    # Compute differences directly on tensors (memory efficient)
+    all_diffs = torch.abs(pre_activations - post_activations)
+    all_rel_diffs = all_diffs / (torch.abs(pre_activations) + 1e-8)
 
+    # Compute per-sample L2 norms
+    per_sample_l2 = []
     for j in range(nsamples):
-        pre = pre_activations[j]
-        post = post_activations[j]
-
-        # Absolute difference
-        diff = torch.abs(pre - post)
-        all_diffs.append(diff)
-
-        # Relative difference (avoid division by zero)
-        rel_diff = diff / (torch.abs(pre) + 1e-8)
-        all_rel_diffs.append(rel_diff)
-
-    # Stack all differences
-    all_diffs = torch.stack(all_diffs)
-    all_rel_diffs = torch.stack(all_rel_diffs)
+        sample_norm = torch.norm(all_diffs[j]).item()
+        per_sample_l2.append(sample_norm)
 
     stats = {
         'mean_abs_diff': all_diffs.mean().item(),
@@ -186,7 +177,7 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
         'max_rel_diff': all_rel_diffs.max().item(),
         'median_rel_diff': all_rel_diffs.median().item(),
         'l2_norm_diff': torch.norm(all_diffs).item(),
-        'per_sample_l2': [torch.norm(d).item() for d in all_diffs],
+        'per_sample_l2': per_sample_l2,
     }
 
     return stats, all_diffs, all_rel_diffs
@@ -424,15 +415,22 @@ def main():
     pre_activations = capture_layer_activations(
         target_layer, inps, attention_mask, position_ids, args.nsamples
     )
-    print(f"Captured {len(pre_activations)} pre-pruning activation tensors")
+    print(f"Captured pre-pruning activation tensor: {pre_activations.shape}")
 
-    # Reload model for pruning (to start fresh)
+    # Clean up pre-pruning forward pass
+    del inps, outs
+    torch.cuda.empty_cache()
+
+    # Reload model for pruning (to start fresh and avoid any gradient accumulation)
     print(f"\n[6/6] Pruning layer {args.layer_idx} and capturing POST-pruning activations...")
+    del model  # Delete old model first
+    torch.cuda.empty_cache()
+
     model = load_model(args.model, args.cache_dir, args.seqlen)
     pruner = WandaPruner(model, tokenizer, device)
 
     # Prune and get post-pruning inputs
-    inps_post, outs_post, attention_mask, position_ids = prune_single_layer(
+    inps_post, _, attention_mask_post, position_ids_post = prune_single_layer(
         pruner, args.layer_idx, args.sparsity_ratio,
         sparsity_pattern, dataloader, args.nsamples, device
     )
@@ -440,9 +438,9 @@ def main():
     # Capture post-pruning activations
     target_layer_post = model.model.layers[args.layer_idx]
     post_activations = capture_layer_activations(
-        target_layer_post, inps_post, attention_mask, position_ids, args.nsamples
+        target_layer_post, inps_post, attention_mask_post, position_ids_post, args.nsamples
     )
-    print(f"Captured {len(post_activations)} post-pruning activation tensors")
+    print(f"Captured post-pruning activation tensor: {post_activations.shape}")
 
     model.config.use_cache = use_cache
 
