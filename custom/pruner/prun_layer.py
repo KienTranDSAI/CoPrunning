@@ -201,9 +201,24 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
     """
     print("\nAnalyzing activation differences...")
 
+    # Debug: Check for NaN or Inf in input tensors
+    if torch.isnan(pre_activations).any():
+        print("Warning: pre_activations contains NaN values")
+    if torch.isnan(post_activations).any():
+        print("Warning: post_activations contains NaN values")
+    if torch.isinf(pre_activations).any():
+        print("Warning: pre_activations contains Inf values")
+    if torch.isinf(post_activations).any():
+        print("Warning: post_activations contains Inf values")
+
     # Compute differences directly on tensors (memory efficient)
     all_diffs = torch.abs(pre_activations - post_activations)
-    all_rel_diffs = all_diffs / (torch.abs(pre_activations) + 1e-8)
+
+    # Compute relative differences with better numerical stability
+    # Only compute relative diff where pre_activations is significant
+    denominator = torch.abs(pre_activations)
+    # Use a larger epsilon to avoid NaN from very small values
+    all_rel_diffs = all_diffs / torch.clamp(denominator, min=1e-6)
 
     # Compute per-sample L2 norms
     per_sample_l2 = []
@@ -211,15 +226,30 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
         sample_norm = torch.norm(all_diffs[j]).item()
         per_sample_l2.append(sample_norm)
 
+    # Filter out NaN and Inf values for relative difference stats
+    valid_rel_diffs = all_rel_diffs[~torch.isnan(all_rel_diffs) & ~torch.isinf(all_rel_diffs)]
+
+    if valid_rel_diffs.numel() == 0:
+        print("Warning: All relative differences are NaN or Inf")
+        mean_rel = float('nan')
+        max_rel = float('nan')
+        median_rel = float('nan')
+    else:
+        mean_rel = valid_rel_diffs.mean().item()
+        max_rel = valid_rel_diffs.max().item()
+        median_rel = valid_rel_diffs.median().item()
+
     stats = {
         'mean_abs_diff': all_diffs.mean().item(),
         'max_abs_diff': all_diffs.max().item(),
         'std_abs_diff': all_diffs.std().item(),
-        'mean_rel_diff': all_rel_diffs.mean().item(),
-        'max_rel_diff': all_rel_diffs.max().item(),
-        'median_rel_diff': all_rel_diffs.median().item(),
+        'mean_rel_diff': mean_rel,
+        'max_rel_diff': max_rel,
+        'median_rel_diff': median_rel,
         'l2_norm_diff': torch.norm(all_diffs).item(),
         'per_sample_l2': per_sample_l2,
+        'num_valid_rel_diffs': valid_rel_diffs.numel(),
+        'total_elements': all_rel_diffs.numel(),
     }
 
     return stats, all_diffs, all_rel_diffs
@@ -274,6 +304,16 @@ def plot_activation_analysis(stats, all_diffs, all_rel_diffs, save_path=None):
     ax = axes[1, 1]
     ax.axis('off')
 
+    # Format relative diff stats (handle NaN)
+    if np.isnan(stats['mean_rel_diff']):
+        rel_diff_text = "N/A (NaN/Inf)"
+        max_rel_text = "N/A"
+        median_rel_text = "N/A"
+    else:
+        rel_diff_text = f"{stats['mean_rel_diff']:.4f} ({stats['mean_rel_diff']*100:.2f}%)"
+        max_rel_text = f"{stats['max_rel_diff']:.4f}"
+        median_rel_text = f"{stats['median_rel_diff']:.4f}"
+
     summary_text = f"""
 Activation Difference Statistics:
 
@@ -281,14 +321,15 @@ Mean Absolute Diff:    {stats['mean_abs_diff']:.6f}
 Max Absolute Diff:     {stats['max_abs_diff']:.6f}
 Std Absolute Diff:     {stats['std_abs_diff']:.6f}
 
-Mean Relative Diff:    {stats['mean_rel_diff']:.4f} ({stats['mean_rel_diff']*100:.2f}%)
-Max Relative Diff:     {stats['max_rel_diff']:.4f}
-Median Relative Diff:  {stats['median_rel_diff']:.4f}
+Mean Relative Diff:    {rel_diff_text}
+Max Relative Diff:     {max_rel_text}
+Median Relative Diff:  {median_rel_text}
 
+Valid rel. elements:   {stats['num_valid_rel_diffs']:,}/{stats['total_elements']:,}
 Total L2 Norm Diff:    {stats['l2_norm_diff']:.6f}
     """
 
-    ax.text(0.1, 0.5, summary_text, fontsize=11, family='monospace',
+    ax.text(0.1, 0.5, summary_text, fontsize=10, family='monospace',
             verticalalignment='center')
 
     plt.tight_layout()
@@ -524,9 +565,18 @@ def main():
     print(f"Max Absolute Difference:      {diff_stats['max_abs_diff']:.6f}")
     print(f"Std Absolute Difference:      {diff_stats['std_abs_diff']:.6f}")
     print()
-    print(f"Mean Relative Difference:     {diff_stats['mean_rel_diff']:.4f} ({diff_stats['mean_rel_diff']*100:.2f}%)")
-    print(f"Max Relative Difference:      {diff_stats['max_rel_diff']:.4f}")
-    print(f"Median Relative Difference:   {diff_stats['median_rel_diff']:.4f}")
+
+    # Print relative difference with context
+    if not np.isnan(diff_stats['mean_rel_diff']):
+        print(f"Mean Relative Difference:     {diff_stats['mean_rel_diff']:.4f} ({diff_stats['mean_rel_diff']*100:.2f}%)")
+        print(f"Max Relative Difference:      {diff_stats['max_rel_diff']:.4f}")
+        print(f"Median Relative Difference:   {diff_stats['median_rel_diff']:.4f}")
+    else:
+        print(f"Mean Relative Difference:     N/A (input contains NaN/Inf)")
+        print(f"Max Relative Difference:      N/A")
+        print(f"Median Relative Difference:   N/A")
+
+    print(f"Valid relative diff elements: {diff_stats['num_valid_rel_diffs']:,} / {diff_stats['total_elements']:,}")
     print()
     print(f"Total L2 Norm Difference:     {diff_stats['l2_norm_diff']:.6f}")
     print("="*80)
