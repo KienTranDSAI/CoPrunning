@@ -226,29 +226,19 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
         sample_norm = torch.norm(all_diffs[j]).item()
         per_sample_l2.append(sample_norm)
 
-    # Filter out NaN and Inf values for relative difference stats
-    valid_rel_diffs = all_rel_diffs[~torch.isnan(all_rel_diffs) & ~torch.isinf(all_rel_diffs)]
-
-    if valid_rel_diffs.numel() == 0:
-        print("Warning: All relative differences are NaN or Inf")
-        mean_rel = float('nan')
-        max_rel = float('nan')
-        median_rel = float('nan')
-    else:
-        mean_rel = valid_rel_diffs.mean().item()
-        max_rel = valid_rel_diffs.max().item()
-        median_rel = valid_rel_diffs.median().item()
-
+    # Keep all values including NaN/Inf - compute stats with original values
+    # Note: nanmean, nanmax skip NaN for computation, but we keep data intact
     stats = {
         'mean_abs_diff': all_diffs.mean().item(),
         'max_abs_diff': all_diffs.max().item(),
         'std_abs_diff': all_diffs.std().item(),
-        'mean_rel_diff': mean_rel,
-        'max_rel_diff': max_rel,
-        'median_rel_diff': median_rel,
+        'mean_rel_diff': all_rel_diffs.mean().item(),  # Will be NaN if any NaN exists
+        'max_rel_diff': all_rel_diffs.max().item(),
+        'median_rel_diff': all_rel_diffs.median().item(),
         'l2_norm_diff': torch.norm(all_diffs).item(),
         'per_sample_l2': per_sample_l2,
-        'num_valid_rel_diffs': valid_rel_diffs.numel(),
+        'num_nan': torch.isnan(all_rel_diffs).sum().item(),
+        'num_inf': torch.isinf(all_rel_diffs).sum().item(),
         'total_elements': all_rel_diffs.numel(),
     }
 
@@ -304,16 +294,6 @@ def plot_activation_analysis(stats, all_diffs, all_rel_diffs, save_path=None):
     ax = axes[1, 1]
     ax.axis('off')
 
-    # Format relative diff stats (handle NaN)
-    if np.isnan(stats['mean_rel_diff']):
-        rel_diff_text = "N/A (NaN/Inf)"
-        max_rel_text = "N/A"
-        median_rel_text = "N/A"
-    else:
-        rel_diff_text = f"{stats['mean_rel_diff']:.4f} ({stats['mean_rel_diff']*100:.2f}%)"
-        max_rel_text = f"{stats['max_rel_diff']:.4f}"
-        median_rel_text = f"{stats['median_rel_diff']:.4f}"
-
     summary_text = f"""
 Activation Difference Statistics:
 
@@ -321,11 +301,12 @@ Mean Absolute Diff:    {stats['mean_abs_diff']:.6f}
 Max Absolute Diff:     {stats['max_abs_diff']:.6f}
 Std Absolute Diff:     {stats['std_abs_diff']:.6f}
 
-Mean Relative Diff:    {rel_diff_text}
-Max Relative Diff:     {max_rel_text}
-Median Relative Diff:  {median_rel_text}
+Mean Relative Diff:    {stats['mean_rel_diff']}
+Max Relative Diff:     {stats['max_rel_diff']}
+Median Relative Diff:  {stats['median_rel_diff']}
 
-Valid rel. elements:   {stats['num_valid_rel_diffs']:,}/{stats['total_elements']:,}
+NaN elements:          {stats['num_nan']:,}
+Inf elements:          {stats['num_inf']:,}
 Total L2 Norm Diff:    {stats['l2_norm_diff']:.6f}
     """
 
@@ -566,17 +547,15 @@ def main():
     print(f"Std Absolute Difference:      {diff_stats['std_abs_diff']:.6f}")
     print()
 
-    # Print relative difference with context
-    if not np.isnan(diff_stats['mean_rel_diff']):
-        print(f"Mean Relative Difference:     {diff_stats['mean_rel_diff']:.4f} ({diff_stats['mean_rel_diff']*100:.2f}%)")
-        print(f"Max Relative Difference:      {diff_stats['max_rel_diff']:.4f}")
-        print(f"Median Relative Difference:   {diff_stats['median_rel_diff']:.4f}")
-    else:
-        print(f"Mean Relative Difference:     N/A (input contains NaN/Inf)")
-        print(f"Max Relative Difference:      N/A")
-        print(f"Median Relative Difference:   N/A")
-
-    print(f"Valid relative diff elements: {diff_stats['num_valid_rel_diffs']:,} / {diff_stats['total_elements']:,}")
+    # Print relative difference (original values, may contain NaN)
+    print(f"Mean Relative Difference:     {diff_stats['mean_rel_diff']}")
+    print(f"Max Relative Difference:      {diff_stats['max_rel_diff']}")
+    print(f"Median Relative Difference:   {diff_stats['median_rel_diff']}")
+    print()
+    print(f"Elements with NaN:            {diff_stats['num_nan']:,} / {diff_stats['total_elements']:,} "
+          f"({diff_stats['num_nan']/diff_stats['total_elements']*100:.2f}%)")
+    print(f"Elements with Inf:            {diff_stats['num_inf']:,} / {diff_stats['total_elements']:,} "
+          f"({diff_stats['num_inf']/diff_stats['total_elements']*100:.2f}%)")
     print()
     print(f"Total L2 Norm Difference:     {diff_stats['l2_norm_diff']:.6f}")
     print("="*80)
