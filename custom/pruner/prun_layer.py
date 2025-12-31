@@ -197,7 +197,7 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
         nsamples: Number of samples
 
     Returns:
-        Tuple of (stats_dict, all_diffs_tensor, all_rel_diffs_tensor)
+        Tuple of (stats_dict, all_diffs_tensor)
     """
     print("\nAnalyzing activation differences...")
 
@@ -214,53 +214,39 @@ def analyze_activation_differences(pre_activations, post_activations, nsamples):
     # Compute differences directly on tensors (memory efficient)
     all_diffs = torch.abs(pre_activations - post_activations)
 
-    # Compute relative differences with better numerical stability
-    # Only compute relative diff where pre_activations is significant
-    denominator = torch.abs(pre_activations)
-    # Use a larger epsilon to avoid NaN from very small values
-    all_rel_diffs = all_diffs / torch.clamp(denominator, min=1e-6)
-
     # Compute per-sample L2 norms
     per_sample_l2 = []
     for j in range(nsamples):
         sample_norm = torch.norm(all_diffs[j]).item()
         per_sample_l2.append(sample_norm)
 
-    # Keep all values including NaN/Inf - compute stats with original values
-    # Note: nanmean, nanmax skip NaN for computation, but we keep data intact
+    # Compute statistics
     stats = {
         'mean_abs_diff': all_diffs.mean().item(),
         'max_abs_diff': all_diffs.max().item(),
         'std_abs_diff': all_diffs.std().item(),
-        'mean_rel_diff': all_rel_diffs.mean().item(),  # Will be NaN if any NaN exists
-        'max_rel_diff': all_rel_diffs.max().item(),
-        'median_rel_diff': all_rel_diffs.median().item(),
         'l2_norm_diff': torch.norm(all_diffs).item(),
         'per_sample_l2': per_sample_l2,
-        'num_nan': torch.isnan(all_rel_diffs).sum().item(),
-        'num_inf': torch.isinf(all_rel_diffs).sum().item(),
-        'total_elements': all_rel_diffs.numel(),
     }
 
-    return stats, all_diffs, all_rel_diffs
+    return stats, all_diffs
 
 
-def plot_activation_analysis(stats, all_diffs, all_rel_diffs, save_path=None):
+def plot_activation_analysis(stats, all_diffs, save_path=None):
     """
     Create visualization of activation differences.
 
     Args:
         stats: Statistics dictionary
         all_diffs: Tensor of absolute differences
-        all_rel_diffs: Tensor of relative differences
         save_path: Optional path to save plot
     """
     print("\nCreating visualizations...")
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     # 1. Histogram of absolute differences
-    ax = axes[0, 0]
+    ax = axes[0]
     diffs_flat = all_diffs.flatten().cpu().numpy()
     ax.hist(diffs_flat, bins=100, alpha=0.7, edgecolor='black')
     ax.set_xlabel('Absolute Difference')
@@ -269,20 +255,8 @@ def plot_activation_analysis(stats, all_diffs, all_rel_diffs, save_path=None):
     ax.set_yscale('log')
     ax.grid(True, alpha=0.3)
 
-    # 2. Histogram of relative differences
-    ax = axes[0, 1]
-    rel_diffs_flat = all_rel_diffs.flatten().cpu().numpy()
-    # Clip extreme values for visualization
-    rel_diffs_clipped = np.clip(rel_diffs_flat, 0, 2)
-    ax.hist(rel_diffs_clipped, bins=100, alpha=0.7, edgecolor='black', color='orange')
-    ax.set_xlabel('Relative Difference (clipped at 2.0)')
-    ax.set_ylabel('Frequency')
-    ax.set_title('Distribution of Relative Activation Differences')
-    ax.set_yscale('log')
-    ax.grid(True, alpha=0.3)
-
-    # 3. Per-sample L2 norm
-    ax = axes[1, 0]
+    # 2. Per-sample L2 norm
+    ax = axes[1]
     sample_indices = list(range(len(stats['per_sample_l2'])))
     ax.bar(sample_indices, stats['per_sample_l2'], alpha=0.7, edgecolor='black', color='green')
     ax.set_xlabel('Sample Index')
@@ -290,8 +264,8 @@ def plot_activation_analysis(stats, all_diffs, all_rel_diffs, save_path=None):
     ax.set_title('Per-Sample L2 Norm of Activation Differences')
     ax.grid(True, alpha=0.3)
 
-    # 4. Statistics summary (text)
-    ax = axes[1, 1]
+    # 3. Statistics summary (text)
+    ax = axes[2]
     ax.axis('off')
 
     summary_text = f"""
@@ -301,16 +275,10 @@ Mean Absolute Diff:    {stats['mean_abs_diff']:.6f}
 Max Absolute Diff:     {stats['max_abs_diff']:.6f}
 Std Absolute Diff:     {stats['std_abs_diff']:.6f}
 
-Mean Relative Diff:    {stats['mean_rel_diff']}
-Max Relative Diff:     {stats['max_rel_diff']}
-Median Relative Diff:  {stats['median_rel_diff']}
-
-NaN elements:          {stats['num_nan']:,}
-Inf elements:          {stats['num_inf']:,}
 Total L2 Norm Diff:    {stats['l2_norm_diff']:.6f}
     """
 
-    ax.text(0.1, 0.5, summary_text, fontsize=10, family='monospace',
+    ax.text(0.1, 0.5, summary_text, fontsize=12, family='monospace',
             verticalalignment='center')
 
     plt.tight_layout()
@@ -534,7 +502,7 @@ def main():
     torch.cuda.empty_cache()
 
     # Analyze differences (both tensors now on CPU)
-    diff_stats, all_diffs, all_rel_diffs = analyze_activation_differences(
+    diff_stats, all_diffs = analyze_activation_differences(
         pre_activations, post_activations, args.nsamples
     )
 
@@ -546,22 +514,11 @@ def main():
     print(f"Max Absolute Difference:      {diff_stats['max_abs_diff']:.6f}")
     print(f"Std Absolute Difference:      {diff_stats['std_abs_diff']:.6f}")
     print()
-
-    # Print relative difference (original values, may contain NaN)
-    print(f"Mean Relative Difference:     {diff_stats['mean_rel_diff']}")
-    print(f"Max Relative Difference:      {diff_stats['max_rel_diff']}")
-    print(f"Median Relative Difference:   {diff_stats['median_rel_diff']}")
-    print()
-    print(f"Elements with NaN:            {diff_stats['num_nan']:,} / {diff_stats['total_elements']:,} "
-          f"({diff_stats['num_nan']/diff_stats['total_elements']*100:.2f}%)")
-    print(f"Elements with Inf:            {diff_stats['num_inf']:,} / {diff_stats['total_elements']:,} "
-          f"({diff_stats['num_inf']/diff_stats['total_elements']*100:.2f}%)")
-    print()
     print(f"Total L2 Norm Difference:     {diff_stats['l2_norm_diff']:.6f}")
     print("="*80)
 
     # Create visualization
-    plot_activation_analysis(diff_stats, all_diffs, all_rel_diffs, args.save_plot)
+    plot_activation_analysis(diff_stats, all_diffs, args.save_plot)
 
     print("\nDone!")
 
