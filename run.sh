@@ -1,0 +1,1 @@
+python prun_layer.py --layer_idx 1 --sparsity_ratio 0.5 --nsamples 10

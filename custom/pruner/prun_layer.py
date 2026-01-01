@@ -16,6 +16,12 @@ Usage examples:
 
   # Save plot to custom location
   python prun_layer.py --layer_idx 0 --save_plot results/layer0_analysis.png
+
+  # Save weight distribution visualizations
+  python prun_layer.py --layer_idx 0 --save_visualization
+
+  # Run without saving visualizations (faster)
+  python prun_layer.py --layer_idx 0 --sparsity_ratio 0.5 --nsamples 10
 """
 
 
@@ -114,7 +120,7 @@ def capture_layer_activations(layer, inputs, attention_mask, position_ids, nsamp
 
 
 def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
-                       dataloader, nsamples, device):
+                       dataloader, nsamples, device, save_visualization=False):
     """
     Prune a single layer using existing BasePruner infrastructure.
 
@@ -126,6 +132,7 @@ def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
         dataloader: Calibration data loader
         nsamples: Number of calibration samples
         device: Device for computation
+        save_visualization: Whether to save weight distribution visualizations
 
     Returns:
         Tuple of (inputs, outputs, attention_mask, position_ids, stats)
@@ -173,21 +180,22 @@ def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
     print(f"\nPruning target layer {layer_idx}...")
     layer = layers[layer_idx]
 
-    # Save weights BEFORE pruning for visualization
+    # Save weights BEFORE pruning for visualization (if enabled)
     subset = find_layers(layer)
-    weights_before = {}
-    for name in subset:
-        weights_before[name] = subset[name].weight.data.clone()
+    if save_visualization:
+        weights_before = {}
+        for name in subset:
+            weights_before[name] = subset[name].weight.data.clone()
 
-    # Visualize BEFORE pruning
-    print(f"\n[Visualization] Layer {layer_idx} BEFORE pruning:")
-    visualize_layer_value_distribution(
-        weights_before,
-        layer_name=f"layer_{layer_idx}",
-        save_dir="../../assets/layer_analysis",
-        suffix="before_pruning",
-        layer_idx=layer_idx
-    )
+        # Visualize BEFORE pruning
+        print(f"\n[Visualization] Layer {layer_idx} BEFORE pruning:")
+        visualize_layer_value_distribution(
+            weights_before,
+            layer_name=f"layer_{layer_idx}",
+            save_dir="../../assets/layer_analysis",
+            suffix="before_pruning",
+            layer_idx=layer_idx
+        )
 
     # Use BasePruner's _prune_layer method (reuse existing logic!)
     inps, outs = pruner._prune_layer(
@@ -197,20 +205,21 @@ def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
         nsamples
     )
 
-    # Save weights AFTER pruning for visualization
-    weights_after = {}
-    for name in subset:
-        weights_after[name] = subset[name].weight.data.clone()
+    # Save weights AFTER pruning for visualization (if enabled)
+    if save_visualization:
+        weights_after = {}
+        for name in subset:
+            weights_after[name] = subset[name].weight.data.clone()
 
-    # Visualize AFTER pruning
-    print(f"\n[Visualization] Layer {layer_idx} AFTER pruning:")
-    visualize_layer_value_distribution(
-        weights_after,
-        layer_name=f"layer_{layer_idx}",
-        save_dir="../../assets/layer_analysis",
-        suffix="after_pruning",
-        layer_idx=layer_idx
-    )
+        # Visualize AFTER pruning
+        print(f"\n[Visualization] Layer {layer_idx} AFTER pruning:")
+        visualize_layer_value_distribution(
+            weights_after,
+            layer_name=f"layer_{layer_idx}",
+            save_dir="../../assets/layer_analysis",
+            suffix="after_pruning",
+            layer_idx=layer_idx
+        )
 
     # Restore cache setting
     model.config.use_cache = use_cache
@@ -381,6 +390,10 @@ def main():
         '--save_plot', type=str, default=None,
         help='Path to save analysis plot (optional)'
     )
+    parser.add_argument(
+        '--save_visualization', action='store_true',
+        help='Save weight distribution visualizations before and after pruning'
+    )
 
     # Utility options
     parser.add_argument(
@@ -513,7 +526,8 @@ def main():
     # Prune and get post-pruning inputs
     inps_post, _, attention_mask_post, position_ids_post = prune_single_layer(
         pruner, args.layer_idx, args.sparsity_ratio,
-        sparsity_pattern, dataloader, args.nsamples, device
+        sparsity_pattern, dataloader, args.nsamples, device,
+        save_visualization=args.save_visualization
     )
 
     # Capture post-pruning activations
