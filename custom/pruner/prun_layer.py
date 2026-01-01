@@ -39,6 +39,7 @@ import numpy as np
 from utils.model_utils import load_model, find_layers, prepare_calibration_input
 from utils.dataset_loader import get_loaders
 from utils.activation_capture import ActivationCapture
+from utils.visualization_utils import visualize_layer_value_distribution
 from pruning.sparsity_patterns import UnstructuredSparsity, NMSparsity
 from pruning.wanda import WandaPruner
 
@@ -172,12 +173,43 @@ def prune_single_layer(pruner, layer_idx, sparsity_ratio, sparsity_pattern,
     print(f"\nPruning target layer {layer_idx}...")
     layer = layers[layer_idx]
 
+    # Save weights BEFORE pruning for visualization
+    subset = find_layers(layer)
+    weights_before = {}
+    for name in subset:
+        weights_before[name] = subset[name].weight.data.clone()
+
+    # Visualize BEFORE pruning
+    print(f"\n[Visualization] Layer {layer_idx} BEFORE pruning:")
+    visualize_layer_value_distribution(
+        weights_before,
+        layer_name=f"layer_{layer_idx}",
+        save_dir="../../assets/layer_analysis",
+        suffix="before_pruning",
+        layer_idx=layer_idx
+    )
+
     # Use BasePruner's _prune_layer method (reuse existing logic!)
     inps, outs = pruner._prune_layer(
         layer_idx, layer, inps, outs,
         attention_mask, position_ids,
         sparsity_ratio, sparsity_pattern,
         nsamples
+    )
+
+    # Save weights AFTER pruning for visualization
+    weights_after = {}
+    for name in subset:
+        weights_after[name] = subset[name].weight.data.clone()
+
+    # Visualize AFTER pruning
+    print(f"\n[Visualization] Layer {layer_idx} AFTER pruning:")
+    visualize_layer_value_distribution(
+        weights_after,
+        layer_name=f"layer_{layer_idx}",
+        save_dir="../../assets/layer_analysis",
+        suffix="after_pruning",
+        layer_idx=layer_idx
     )
 
     # Restore cache setting
