@@ -112,7 +112,10 @@ class InverseWandaStrategy(RedistributionStrategy):
             )
 
         device = W_sparse.device
-        scaler_row = scaler_row.to(device)
+        dtype = W_sparse.dtype
+
+        # Ensure scaler_row matches device and dtype
+        scaler_row = scaler_row.to(device=device, dtype=dtype)
 
         # 1. Compute Wanda scores for all weights
         # Same formula as pruning: |W| × sqrt(||activation||^2)
@@ -121,8 +124,8 @@ class InverseWandaStrategy(RedistributionStrategy):
         # 2. Create survivor mask
         survivor_mask = ~prune_mask
 
-        # 3. Initialize coefficient matrix
-        C = torch.zeros_like(W_sparse, dtype=torch.float32)
+        # 3. Initialize coefficient matrix (match W_sparse dtype)
+        C = torch.zeros_like(W_sparse, dtype=dtype)
 
         # 4. Process each output neuron independently
         for i in range(W_sparse.shape[0]):
@@ -147,16 +150,18 @@ class InverseWandaStrategy(RedistributionStrategy):
         Returns:
             Coefficient vector (in_features,) that sums to 1.0
         """
+        dtype = W_row.dtype
+
         # Get survivor indices
         survivor_indices = torch.where(survivor_mask_row)[0]
 
         # Edge case: no survivors
         if survivor_indices.numel() == 0:
-            return torch.zeros_like(W_row, dtype=torch.float32)
+            return torch.zeros_like(W_row, dtype=dtype)
 
         # Edge case: only one survivor (gets all the update)
         if survivor_indices.numel() == 1:
-            coeffs = torch.zeros_like(W_row, dtype=torch.float32)
+            coeffs = torch.zeros_like(W_row, dtype=dtype)
             coeffs[survivor_indices[0]] = 1.0
             return coeffs
 
@@ -182,7 +187,7 @@ class InverseWandaStrategy(RedistributionStrategy):
         normalized_coeffs = inverse_coeffs / inverse_coeffs.sum()
 
         # Assign to output vector
-        coeffs = torch.zeros_like(W_row, dtype=torch.float32)
+        coeffs = torch.zeros_like(W_row, dtype=dtype)
         coeffs[update_indices_global] = normalized_coeffs
 
         return coeffs
@@ -234,8 +239,13 @@ class WeightRedistributor:
         # Get sparse weights
         W_sparse = layer.weight.data
         device = W_sparse.device
-        mean_activations = mean_activations.to(device)
-        W_dense = W_dense.to(device)
+        dtype = W_sparse.dtype
+
+        # Ensure all tensors are on same device and dtype
+        mean_activations = mean_activations.to(device=device, dtype=dtype)
+        W_dense = W_dense.to(device=device, dtype=dtype)
+        if scaler_row is not None:
+            scaler_row = scaler_row.to(device=device, dtype=dtype)
 
         # 1. Compute lost signal per output neuron
         # ε_i = (W_dense[i, :] - W_sparse[i, :]) @ E[x]
