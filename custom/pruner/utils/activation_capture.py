@@ -34,6 +34,12 @@ class ActivationCapture:
         # scaler_row: L2-norm squared of activations per input feature
         # Shape: (columns,) = (input_features,)
         self.scaler_row = torch.zeros((self.columns), device=self.device)
+
+        # mean_activations: Mean activation value per input feature
+        # Used for weight redistribution after pruning
+        # Shape: (columns,) = (input_features,)
+        self.mean_activations = torch.zeros((self.columns), device=self.device)
+
         self.nsamples = 0
 
     def add_batch(self, inp, out):
@@ -79,6 +85,15 @@ class ActivationCapture:
         # We square it to get ||activation||^2 per feature
         self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2 / self.nsamples
 
+        # Accumulate mean activation per input feature
+        # inp is (input_dim, batch*seq_len), so mean across dim=1 gives mean per feature
+        batch_mean = torch.mean(inp, dim=1)
+        # Running average update
+        self.mean_activations = (
+            (self.mean_activations * (self.nsamples - batch_size) + batch_mean * batch_size) /
+            self.nsamples
+        )
+
     def get_scaler(self):
         """
         Get the accumulated activation statistics.
@@ -88,7 +103,17 @@ class ActivationCapture:
         """
         return self.scaler_row
 
+    def get_mean_activations(self):
+        """
+        Get the accumulated mean activations.
+
+        Returns:
+            Tensor of shape (columns,) containing mean activation per input feature
+        """
+        return self.mean_activations
+
     def reset(self):
         """Reset accumulated statistics."""
         self.scaler_row.zero_()
+        self.mean_activations.zero_()
         self.nsamples = 0

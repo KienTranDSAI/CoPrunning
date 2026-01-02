@@ -8,20 +8,20 @@ Usage examples:
   # Print all layers and their indices
   python prun_layer.py --print_layers
 
-  # Prune layer 0 with 50% unstructured sparsity
+  # Prune layer 0 with 50% unstructured sparsity (no images saved)
   python prun_layer.py --layer_idx 0 --sparsity_ratio 0.5 --nsamples 10
 
-  # Prune layer 5 with 2:4 structured sparsity
+  # Prune layer 5 with 2:4 structured sparsity (no images saved)
   python prun_layer.py --layer_idx 5 --sparsity_type 2:4 --nsamples 10
 
-  # Save plot to custom location
+  # Save activation difference plot to custom location
   python prun_layer.py --layer_idx 0 --save_plot results/layer0_analysis.png
 
-  # Save weight distribution visualizations
+  # Save weight distribution visualizations (before & after pruning)
   python prun_layer.py --layer_idx 0 --save_visualization
 
-  # Run without saving visualizations (faster)
-  python prun_layer.py --layer_idx 0 --sparsity_ratio 0.5 --nsamples 10
+  # Save both activation plot and weight distributions
+  python prun_layer.py --layer_idx 0 --save_plot results/activation.png --save_visualization
 """
 
 
@@ -48,6 +48,12 @@ from utils.activation_capture import ActivationCapture
 from utils.visualization_utils import visualize_layer_value_distribution
 from pruning.sparsity_patterns import UnstructuredSparsity, NMSparsity
 from pruning.wanda import WandaPruner
+from recovery.weight_redistribution import (
+    WeightRedistributor,
+    ProportionalBufferStrategy,
+    UniformStrategy,
+    MagnitudeWeightedStrategy
+)
 
 
 def print_model_layers(model):
@@ -280,9 +286,13 @@ def plot_activation_analysis(stats, all_diffs, save_path=None):
     Args:
         stats: Statistics dictionary
         all_diffs: Tensor of absolute differences
-        save_path: Optional path to save plot
+        save_path: Path to save plot (if None, plot is not created)
     """
-    print("\nCreating visualizations...")
+    if not save_path:
+        print("\nSkipping activation difference plot (no save path specified)")
+        return
+
+    print("\nCreating activation difference visualizations...")
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
@@ -324,12 +334,8 @@ Total L2 Norm Diff:    {stats['l2_norm_diff']:.6f}
 
     plt.tight_layout()
 
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot to {save_path}")
-    else:
-        plt.savefig('activation_diff_analysis.png', dpi=300, bbox_inches='tight')
-        print("Saved plot to activation_diff_analysis.png")
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Saved activation difference plot to {save_path}")
 
     plt.close()
 
@@ -383,6 +389,21 @@ def main():
     parser.add_argument(
         '--seed', type=int, default=0,
         help='Random seed'
+    )
+
+    # Weight Redistribution
+    parser.add_argument(
+        '--use_recovery', action='store_true',
+        help='Apply weight redistribution after pruning'
+    )
+    parser.add_argument(
+        '--recovery_strategy', type=str, default='proportional_buffer',
+        choices=['proportional_buffer', 'uniform', 'magnitude_weighted'],
+        help='Strategy for redistributing lost signal'
+    )
+    parser.add_argument(
+        '--protected_tier_pct', type=float, default=0.2,
+        help='Percentage of surviving weights to protect (proportional_buffer only)'
     )
 
     # Output
@@ -457,9 +478,24 @@ def main():
         seqlen=model.seqlen, tokenizer=tokenizer
     )
 
+    # Create redistributor if enabled
+    redistributor = None
+    if args.use_recovery:
+        if args.recovery_strategy == 'proportional_buffer':
+            strategy = ProportionalBufferStrategy(args.protected_tier_pct)
+        elif args.recovery_strategy == 'uniform':
+            strategy = UniformStrategy()
+        elif args.recovery_strategy == 'magnitude_weighted':
+            strategy = MagnitudeWeightedStrategy()
+        else:
+            raise ValueError(f"Unknown recovery strategy: {args.recovery_strategy}")
+        redistributor = WeightRedistributor(strategy)
+
     # Create WandaPruner (reuses existing infrastructure)
     print(f"\n[4/6] Creating WandaPruner...")
-    pruner = WandaPruner(model, tokenizer, device)
+    if args.use_recovery:
+        print(f"  Using recovery strategy: {args.recovery_strategy}")
+    pruner = WandaPruner(model, tokenizer, device, redistributor)
 
     # Capture PRE-pruning activations
     print(f"\n[5/6] Capturing PRE-pruning activations...")
@@ -521,7 +557,20 @@ def main():
     torch.cuda.empty_cache()
 
     model = load_model(args.model, args.cache_dir, args.seqlen)
-    pruner = WandaPruner(model, tokenizer, device)
+    # Recreate redistributor if needed
+    redistributor_post = None
+    if args.use_recovery:
+        if args.recovery_strategy == 'proportional_buffer':
+            strategy = ProportionalBufferStrategy(args.protected_tier_pct)
+        elif args.recovery_strategy == 'uniform':
+            strategy = UniformStrategy()
+        elif args.recovery_strategy == 'magnitude_weighted':
+            strategy = MagnitudeWeightedStrategy()
+        else:
+            raise ValueError(f"Unknown recovery strategy: {args.recovery_strategy}")
+        redistributor_post = WeightRedistributor(strategy)
+
+    pruner = WandaPruner(model, tokenizer, device, redistributor_post)
 
     # Prune and get post-pruning inputs
     inps_post, _, attention_mask_post, position_ids_post = prune_single_layer(

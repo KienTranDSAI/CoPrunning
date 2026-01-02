@@ -37,6 +37,18 @@ class WandaPruner(BasePruner):
     Reference: wanda/lib/prune.py:172
     """
 
+    def __init__(self, model, tokenizer, device, redistributor=None):
+        """
+        Initialize Wanda pruner.
+
+        Args:
+            model: Model to prune
+            tokenizer: Associated tokenizer
+            device: Device for computation
+            redistributor: Optional WeightRedistributor instance
+        """
+        super().__init__(model, tokenizer, device, redistributor)
+
     def compute_pruning_metric(self, layer, activation_stats):
         """
         Compute Wanda importance metric.

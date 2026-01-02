@@ -36,7 +36,7 @@ class BasePruner(ABC):
     Subclasses only need to implement compute_pruning_metric().
     """
 
-    def __init__(self, model, tokenizer, device):
+    def __init__(self, model, tokenizer, device, redistributor=None):
         """
         Initialize pruner.
 
@@ -44,10 +44,12 @@ class BasePruner(ABC):
             model: Model to prune
             tokenizer: Associated tokenizer
             device: Device for computation
+            redistributor: Optional WeightRedistributor instance for post-pruning weight redistribution
         """
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
+        self.redistributor = redistributor
 
     def prune(self, sparsity_ratio, sparsity_pattern, nsamples=128,
               dataset="c4", seed=0):
@@ -203,8 +205,23 @@ class BasePruner(ABC):
             # Create pruning mask based on sparsity pattern
             mask = sparsity_pattern.create_mask(metric, sparsity_ratio)
 
+            # BEFORE pruning: Save original weights for lost signal calculation
+            if self.redistributor is not None:
+                W_dense = subset[name].weight.data.clone()
+
             # Apply mask: zero out pruned weights
             subset[name].weight.data[mask] = 0
+
+            # AFTER pruning: Apply weight redistribution (separate from pruning logic)
+            if self.redistributor is not None:
+                recovery_stats = self.redistributor.apply(
+                    W_dense,  # Original weights before pruning
+                    subset[name],  # Layer (weights modified in-place)
+                    mask,  # Pruning mask
+                    activation_captures[name].get_mean_activations(),  # E[x]
+                    activation_captures[name].get_scaler()  # L2-norm squared for Wanda
+                )
+                print(f"    Recovery - Relative error: {recovery_stats['relative_error']:.6f}")
 
             # Report sparsity for this sublayer
             total_weights = mask.numel()

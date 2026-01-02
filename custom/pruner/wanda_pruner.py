@@ -23,6 +23,10 @@ from utils.model_utils import load_model, check_sparsity
 from utils.evaluator import PerplexityEvaluator
 from pruning.wanda import WandaPruner
 from pruning.sparsity_patterns import UnstructuredSparsity, NMSparsity
+from recovery.weight_redistribution import (
+    WeightRedistributor,
+    InverseWandaStrategy
+)
 
 
 def main():
@@ -68,6 +72,20 @@ def main():
     parser.add_argument(
         '--seed', type=int, default=0,
         help='Random seed for reproducibility'
+    )
+
+    # Weight Redistribution
+    parser.add_argument(
+        '--use_recovery', action='store_true',
+        help='Apply weight redistribution after pruning'
+    )
+    parser.add_argument(
+        '--inverse_wanda_update_fraction', type=float, default=0.3,
+        help='Fraction of survivors to update (0.0-1.0, default: 0.3 = 30%%)'
+    )
+    parser.add_argument(
+        '--inverse_wanda_max_relative_update', type=float, default=2.0,
+        help='Max update relative to weight magnitude (default: 2.0)'
     )
 
     # Output
@@ -126,9 +144,24 @@ def main():
     original_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
     print(f"Original model perplexity: {original_ppl:.2f}")
 
+    # Create redistributor if enabled
+    redistributor = None
+    if args.use_recovery:
+        print(f"\n[4/7] Initializing weight redistributor...")
+        print(f"  Strategy: Inverse Wanda")
+        print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
+        print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
+
+        strategy = InverseWandaStrategy(
+            update_fraction=args.inverse_wanda_update_fraction,
+            max_relative_update=args.inverse_wanda_max_relative_update
+        )
+        redistributor = WeightRedistributor(strategy)
+
     # Create pruner
-    print(f"\n[4/6] Running Wanda pruning...")
-    pruner = WandaPruner(model, tokenizer, device)
+    step_num = 5 if args.use_recovery else 4
+    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Running Wanda pruning...")
+    pruner = WandaPruner(model, tokenizer, device, redistributor)
 
     # Run pruning
     pruner.prune(
@@ -140,13 +173,15 @@ def main():
     )
 
     # Check actual sparsity achieved
-    print(f"\n[5/6] Checking sparsity...")
+    step_num = 6 if args.use_recovery else 5
+    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Checking sparsity...")
     actual_sparsity = check_sparsity(model)
     print(f"\nTarget sparsity: {args.sparsity_ratio:.4f}")
     print(f"Actual sparsity: {actual_sparsity:.4f}")
 
     # Evaluate pruned model perplexity
-    print(f"\n[6/6] Evaluating pruned model perplexity...")
+    step_num = 7 if args.use_recovery else 6
+    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Evaluating pruned model perplexity...")
     ppl = evaluator.evaluate(dataset="wikitext2", device=device)
 
     # Print results
