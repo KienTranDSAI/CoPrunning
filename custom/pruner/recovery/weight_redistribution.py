@@ -258,13 +258,10 @@ class WeightRedistributor:
         )
 
         # 3. Compute weight updates
-        # For each weight w_ij: Δw_ij = C[i,j] * ε_i / E[x_j]
+        # For each weight w_ij: Δw_ij = C[i,j] * ε_i
+        # where ε_i is the lost signal already computed
         # Broadcasting: lost_signal (out_features,) → (out_features, 1)
-        #               mean_activations (in_features,) → (1, in_features)
-        delta_weights = (
-            C * lost_signal.reshape(-1, 1) /
-            (mean_activations.reshape(1, -1) + 1e-8)  # Prevent div by zero
-        )
+        delta_weights = C * lost_signal.reshape(-1, 1)
 
         # 4. Apply update cap (if strategy has this attribute)
         if hasattr(self.strategy, 'max_relative_update'):
