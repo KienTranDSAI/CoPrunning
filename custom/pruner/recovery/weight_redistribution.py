@@ -183,6 +183,12 @@ class InverseWandaStrategy(RedistributionStrategy):
         # Inverse proportionality: 1 / (wanda + epsilon)
         inverse_coeffs = 1.0 / (selected_wanda + self.min_wanda_epsilon)
 
+        # Clamp inverse coefficients to prevent extreme values
+        # Max coefficient ratio of 1000:1 between smallest and largest
+        max_coeff = inverse_coeffs.max()
+        min_coeff = max_coeff / 1000.0
+        inverse_coeffs = torch.clamp(inverse_coeffs, min=min_coeff, max=max_coeff)
+
         # Normalize to sum to 1.0
         normalized_coeffs = inverse_coeffs / inverse_coeffs.sum()
 
@@ -239,22 +245,26 @@ class WeightRedistributor:
         # Get sparse weights
         W_sparse = layer.weight.data
         device = W_sparse.device
-        dtype = W_sparse.dtype
+        original_dtype = W_sparse.dtype
 
-        # Ensure all tensors are on same device and dtype
-        mean_activations = mean_activations.to(device=device, dtype=dtype)
-        W_dense = W_dense.to(device=device, dtype=dtype)
+        # Convert to float32 for numerical stability during redistribution
+        compute_dtype = torch.float32
+
+        # Ensure all tensors are on same device and use float32 for computation
+        mean_activations = mean_activations.to(device=device, dtype=compute_dtype)
+        W_dense = W_dense.to(device=device, dtype=compute_dtype)
+        W_sparse_fp32 = W_sparse.to(dtype=compute_dtype)
         if scaler_row is not None:
-            scaler_row = scaler_row.to(device=device, dtype=dtype)
+            scaler_row = scaler_row.to(device=device, dtype=compute_dtype)
 
         # 1. Compute lost signal per output neuron
         # ε_i = (W_dense[i, :] - W_sparse[i, :]) @ E[x]
-        delta_W = W_dense - W_sparse  # Difference due to pruning
+        delta_W = W_dense - W_sparse_fp32  # Difference due to pruning
         lost_signal = torch.matmul(delta_W, mean_activations)  # (out_features,)
 
-        # 2. Compute redistribution coefficients
+        # 2. Compute redistribution coefficients (in float32)
         C = self.strategy.compute_coefficients(
-            W_sparse, prune_mask, mean_activations, scaler_row
+            W_sparse_fp32, prune_mask, mean_activations, scaler_row
         )
 
         # 3. Compute weight updates
@@ -263,23 +273,39 @@ class WeightRedistributor:
         # Broadcasting: lost_signal (out_features,) → (out_features, 1)
         delta_weights = C * lost_signal.reshape(-1, 1)
 
+        # Clamp delta_weights to prevent extreme values
+        max_abs_delta = torch.abs(delta_weights).max()
+        if max_abs_delta > 10.0:  # Safety threshold
+            delta_weights = torch.clamp(delta_weights, -10.0, 10.0)
+
         # 4. Apply update cap (if strategy has this attribute)
         if hasattr(self.strategy, 'max_relative_update'):
             max_update = self.strategy.max_relative_update
             # Cap: |Δw_ij| ≤ max_relative_update * |w_ij|
-            cap = max_update * torch.abs(W_sparse)
+            cap = max_update * torch.abs(W_sparse_fp32)
             # For zero weights, use a small default cap
             cap = torch.where(cap > 0, cap, torch.ones_like(cap) * 0.01)
             delta_weights = torch.clamp(delta_weights, -cap, cap)
 
-        # 5. Apply updates to weights (in-place)
-        layer.weight.data += delta_weights
+        # 5. Check for NaN/Inf before applying
+        if torch.isnan(delta_weights).any() or torch.isinf(delta_weights).any():
+            print(f"WARNING: NaN/Inf detected in delta_weights, skipping redistribution")
+            return {
+                'relative_error': float('inf'),
+                'total_lost_signal': 0.0,
+                'num_weights_updated': 0,
+                'max_update_magnitude': 0.0,
+            }
 
-        # 6. Verify: pruned weights should still be zero
+        # 6. Apply updates to weights (convert back to original dtype)
+        delta_weights_original_dtype = delta_weights.to(dtype=original_dtype)
+        layer.weight.data += delta_weights_original_dtype
+
+        # 7. Verify: pruned weights should still be zero
         layer.weight.data[prune_mask] = 0
 
-        # 7. Compute recovery statistics
-        W_recovered = layer.weight.data
+        # 8. Compute recovery statistics (in float32 for accuracy)
+        W_recovered = layer.weight.data.to(dtype=compute_dtype)
         recovered_signal = torch.matmul(W_recovered, mean_activations)
         original_signal = torch.matmul(W_dense, mean_activations)
 
