@@ -139,15 +139,50 @@ def main():
         sparsity_pattern = NMSparsity(n=4, m=8)
 
     # Evaluate original model perplexity
-    print(f"\n[3/6] Evaluating original model perplexity...")
+    print(f"\n[3/{'9' if args.use_recovery else '6'}] Evaluating original model perplexity...")
     evaluator = PerplexityEvaluator(model, tokenizer)
     original_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
     print(f"Original model perplexity: {original_ppl:.2f}")
 
-    # Create redistributor if enabled
-    redistributor = None
+    # Initialize perplexity variables
+    pruned_ppl = None
+    recovered_ppl = None
+
     if args.use_recovery:
-        print(f"\n[4/7] Initializing weight redistributor...")
+        # ================================================================
+        # STAGE 1: Prune WITHOUT recovery to measure pruning-only impact
+        # ================================================================
+        print(f"\n[4/9] Running Wanda pruning WITHOUT recovery...")
+        pruner_no_recovery = WandaPruner(model, tokenizer, device, redistributor=None)
+        pruner_no_recovery.prune(
+            sparsity_ratio=args.sparsity_ratio,
+            sparsity_pattern=sparsity_pattern,
+            nsamples=args.nsamples,
+            dataset=args.dataset,
+            seed=args.seed
+        )
+
+        # Check sparsity after pruning
+        print(f"\n[5/9] Checking sparsity after pruning...")
+        actual_sparsity = check_sparsity(model)
+        print(f"Actual sparsity: {actual_sparsity:.4f}")
+
+        # Evaluate pruned-only model
+        print(f"\n[6/9] Evaluating PRUNED model (before recovery)...")
+        pruned_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+        print(f"Pruned model perplexity: {pruned_ppl:.2f}")
+        print(f"Perplexity increase from pruning: {pruned_ppl - original_ppl:.2f}")
+
+        # ================================================================
+        # STAGE 2: Reload model and prune WITH recovery
+        # ================================================================
+        print(f"\n[7/9] Reloading model for recovery pass...")
+        del model  # Free memory
+        torch.cuda.empty_cache()
+        model = load_model(args.model, args.cache_dir, args.seqlen)
+        evaluator = PerplexityEvaluator(model, tokenizer)
+
+        print(f"\n[8/9] Running Wanda pruning WITH recovery...")
         print(f"  Strategy: Inverse Wanda")
         print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
         print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
@@ -158,31 +193,42 @@ def main():
         )
         redistributor = WeightRedistributor(strategy)
 
-    # Create pruner
-    step_num = 5 if args.use_recovery else 4
-    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Running Wanda pruning...")
-    pruner = WandaPruner(model, tokenizer, device, redistributor)
+        pruner_with_recovery = WandaPruner(model, tokenizer, device, redistributor)
+        pruner_with_recovery.prune(
+            sparsity_ratio=args.sparsity_ratio,
+            sparsity_pattern=sparsity_pattern,
+            nsamples=args.nsamples,
+            dataset=args.dataset,
+            seed=args.seed
+        )
 
-    # Run pruning
-    pruner.prune(
-        sparsity_ratio=args.sparsity_ratio,
-        sparsity_pattern=sparsity_pattern,
-        nsamples=args.nsamples,
-        dataset=args.dataset,
-        seed=args.seed
-    )
+        # Evaluate recovered model
+        print(f"\n[9/9] Evaluating RECOVERED model (after recovery)...")
+        recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+        print(f"Recovered model perplexity: {recovered_ppl:.2f}")
+        print(f"Recovery improvement: {pruned_ppl - recovered_ppl:.2f}")
 
-    # Check actual sparsity achieved
-    step_num = 6 if args.use_recovery else 5
-    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Checking sparsity...")
-    actual_sparsity = check_sparsity(model)
-    print(f"\nTarget sparsity: {args.sparsity_ratio:.4f}")
-    print(f"Actual sparsity: {actual_sparsity:.4f}")
+        ppl = recovered_ppl  # Final perplexity
 
-    # Evaluate pruned model perplexity
-    step_num = 7 if args.use_recovery else 6
-    print(f"\n[{step_num}/{'7' if args.use_recovery else '6'}] Evaluating pruned model perplexity...")
-    ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+    else:
+        # Standard pruning without recovery
+        print(f"\n[4/6] Running Wanda pruning...")
+        pruner = WandaPruner(model, tokenizer, device, redistributor=None)
+        pruner.prune(
+            sparsity_ratio=args.sparsity_ratio,
+            sparsity_pattern=sparsity_pattern,
+            nsamples=args.nsamples,
+            dataset=args.dataset,
+            seed=args.seed
+        )
+
+        print(f"\n[5/6] Checking sparsity...")
+        actual_sparsity = check_sparsity(model)
+        print(f"Actual sparsity: {actual_sparsity:.4f}")
+
+        print(f"\n[6/6] Evaluating pruned model...")
+        ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+        pruned_ppl = ppl
 
     # Print results
     print("\n" + "="*80)
@@ -192,9 +238,20 @@ def main():
     print(f"Sparsity type: {args.sparsity_type}")
     print(f"Target sparsity: {args.sparsity_ratio:.4f}")
     print(f"Actual sparsity: {actual_sparsity:.4f}")
-    print(f"Original WikiText2 Perplexity: {original_ppl:.2f}")
-    print(f"Pruned WikiText2 Perplexity: {ppl:.2f}")
-    print(f"Perplexity Increase: {ppl - original_ppl:.2f} ({((ppl - original_ppl) / original_ppl * 100):.2f}%)")
+    print()
+    print("Perplexity Results:")
+    print(f"  [1] Original:        {original_ppl:.2f}")
+
+    if args.use_recovery:
+        print(f"  [2] After Pruning:   {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f}, +{((pruned_ppl - original_ppl) / original_ppl * 100):.2f}%)")
+        print(f"  [3] After Recovery:  {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f}, +{((recovered_ppl - original_ppl) / original_ppl * 100):.2f}%)")
+        print()
+        print(f"Recovery Impact:")
+        print(f"  Recovered {pruned_ppl - recovered_ppl:.2f} perplexity points")
+        print(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)")
+    else:
+        print(f"  [2] After Pruning:   {ppl:.2f}  (+{ppl - original_ppl:.2f}, +{((ppl - original_ppl) / original_ppl * 100):.2f}%)")
+
     print("="*80)
 
     # Save results log
@@ -212,9 +269,16 @@ def main():
             f.write(f"Calibration samples: {args.nsamples}\n")
             f.write(f"Sequence length: {args.seqlen}\n")
             f.write(f"\nPerplexity Results:\n")
-            f.write(f"Original WikiText2 Perplexity: {original_ppl:.2f}\n")
-            f.write(f"Pruned WikiText2 Perplexity: {ppl:.2f}\n")
-            f.write(f"Perplexity Increase: {ppl - original_ppl:.2f} ({((ppl - original_ppl) / original_ppl * 100):.2f}%)\n")
+            f.write(f"  [1] Original:       {original_ppl:.2f}\n")
+
+            if args.use_recovery:
+                f.write(f"  [2] After Pruning:  {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f})\n")
+                f.write(f"  [3] After Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f})\n")
+                f.write(f"\nRecovery Impact:\n")
+                f.write(f"  Recovered {pruned_ppl - recovered_ppl:.2f} perplexity points\n")
+                f.write(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)\n")
+            else:
+                f.write(f"  [2] After Pruning:  {ppl:.2f}  (+{ppl - original_ppl:.2f})\n")
 
     # Save pruned model
     if args.save_model:
