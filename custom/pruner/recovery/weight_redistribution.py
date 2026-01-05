@@ -381,6 +381,15 @@ class WeightRedistributor:
         # This represents the total magnitude of weight updates
         sum_of_updated_error = torch.sum(torch.abs(delta_weights)).item()
 
+        # Get and print top 10 largest coefficients (non-zero entries only)
+        C_nonzero = C[C != 0]
+        if C_nonzero.numel() > 0:
+            k = min(10, C_nonzero.numel())
+            top_k_coeffs, _ = torch.topk(torch.abs(C_nonzero), k)
+            print(f"    Top {k} largest coefficients:")
+            for i, coeff in enumerate(top_k_coeffs.cpu().tolist(), 1):
+                print(f"      [{i}] {coeff:.8f}")
+
         stats = {
             'relative_error': relative_error,
             'total_lost_signal': torch.norm(lost_signal).item(),
