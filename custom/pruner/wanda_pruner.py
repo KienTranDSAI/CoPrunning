@@ -139,7 +139,7 @@ def main():
         sparsity_pattern = NMSparsity(n=4, m=8)
 
     # Evaluate original model perplexity
-    print(f"\n[3/{'9' if args.use_recovery else '6'}] Evaluating original model perplexity...")
+    print(f"\n[3/{'7' if args.use_recovery else '6'}] Evaluating original model perplexity...")
     evaluator = PerplexityEvaluator(model, tokenizer)
     original_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
     print(f"Original model perplexity: {original_ppl:.2f}")
@@ -153,9 +153,9 @@ def main():
         # ================================================================
         # STAGE 1: Prune WITHOUT recovery to measure pruning-only impact
         # ================================================================
-        print(f"\n[4/9] Running Wanda pruning WITHOUT recovery...")
-        pruner_no_recovery = WandaPruner(model, tokenizer, device, redistributor=None)
-        pruner_no_recovery.prune(
+        print(f"\n[4/7] Running Wanda pruning WITHOUT recovery...")
+        pruner = WandaPruner(model, tokenizer, device, redistributor=None)
+        pruner.prune(
             sparsity_ratio=args.sparsity_ratio,
             sparsity_pattern=sparsity_pattern,
             nsamples=args.nsamples,
@@ -164,29 +164,20 @@ def main():
         )
 
         # Check sparsity after pruning
-        print(f"\n[5/9] Checking sparsity after pruning...")
+        print(f"\n[5/7] Checking sparsity after pruning...")
         actual_sparsity = check_sparsity(model)
         print(f"Actual sparsity: {actual_sparsity:.4f}")
 
         # Evaluate pruned-only model
-        print(f"\n[6/9] Evaluating PRUNED model (before recovery)...")
+        print(f"\n[6/7] Evaluating PRUNED model (before recovery)...")
         pruned_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
         print(f"Pruned model perplexity: {pruned_ppl:.2f}")
         print(f"Perplexity increase from pruning: {pruned_ppl - original_ppl:.2f}")
 
-        # Get pruning-only stats (no recovery stats since redistributor was None)
-        pruned_stats = None
-
         # ================================================================
-        # STAGE 2: Reload model and prune WITH recovery
+        # STAGE 2: Apply recovery to the SAME pruned model (no re-pruning!)
         # ================================================================
-        print(f"\n[7/9] Reloading model for recovery pass...")
-        del model  # Free memory
-        torch.cuda.empty_cache()
-        model = load_model(args.model, args.cache_dir, args.seqlen)
-        evaluator = PerplexityEvaluator(model, tokenizer)
-
-        print(f"\n[8/9] Running Wanda pruning WITH recovery...")
+        print(f"\n[7/7] Applying weight redistribution to pruned model...")
         print(f"  Strategy: Inverse Wanda")
         print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
         print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
@@ -197,23 +188,14 @@ def main():
         )
         redistributor = WeightRedistributor(strategy)
 
-        pruner_with_recovery = WandaPruner(model, tokenizer, device, redistributor)
-        pruner_with_recovery.prune(
-            sparsity_ratio=args.sparsity_ratio,
-            sparsity_pattern=sparsity_pattern,
-            nsamples=args.nsamples,
-            dataset=args.dataset,
-            seed=args.seed
-        )
+        # Apply recovery using stored pruning state (no re-pruning!)
+        recovery_stats = pruner.apply_recovery(redistributor)
 
         # Evaluate recovered model
-        print(f"\n[9/9] Evaluating RECOVERED model (after recovery)...")
+        print(f"\nEvaluating RECOVERED model (after recovery)...")
         recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
         print(f"Recovered model perplexity: {recovered_ppl:.2f}")
         print(f"Recovery improvement: {pruned_ppl - recovered_ppl:.2f}")
-
-        # Get recovery statistics
-        recovery_stats = pruner_with_recovery.get_recovery_summary()
 
         ppl = recovered_ppl  # Final perplexity
 

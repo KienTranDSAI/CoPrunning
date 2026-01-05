@@ -52,6 +52,11 @@ class BasePruner(ABC):
         self.redistributor = redistributor
         self.recovery_stats = []  # Store recovery statistics
 
+        # Storage for pruning state (for recovery without re-pruning)
+        self.pruning_masks = {}  # Store masks per layer/sublayer
+        self.activation_captures = {}  # Store activation stats per layer/sublayer
+        self.original_weights = {}  # Store original weights before pruning
+
     def prune(self, sparsity_ratio, sparsity_pattern, nsamples=128,
               dataset="c4", seed=0):
         """
@@ -150,6 +155,73 @@ class BasePruner(ABC):
             'num_layers': len(self.recovery_stats)
         }
 
+    def apply_recovery(self, redistributor):
+        """
+        Apply weight redistribution to an already-pruned model.
+
+        This method uses stored pruning masks and activation statistics from
+        a previous pruning run, allowing recovery to be applied without re-pruning.
+
+        Args:
+            redistributor: WeightRedistributor instance to apply
+
+        Returns:
+            dict: Summary statistics of recovery
+        """
+        if not self.pruning_masks:
+            raise RuntimeError("No pruning state stored. Must run prune() first.")
+
+        print("\nApplying weight redistribution to pruned model...")
+        print(f"Layers to recover: {len(self.pruning_masks)}")
+
+        # Clear previous recovery stats
+        self.recovery_stats = []
+
+        # Iterate through stored pruning state
+        for layer_key in sorted(self.pruning_masks.keys()):
+            mask = self.pruning_masks[layer_key]
+            activation_capture = self.activation_captures[layer_key]
+            W_dense = self.original_weights[layer_key]
+
+            # Parse layer key to get layer reference
+            # Format: "layer_{layer_idx}_{sublayer_name}"
+            parts = layer_key.split('_', 2)
+            layer_idx = int(parts[1])
+            sublayer_name = parts[2]
+
+            # Get the actual layer
+            layer = self.model.model.layers[layer_idx]
+            subset = {sublayer_name: getattr(layer, sublayer_name.split('.')[0])}
+            if '.' in sublayer_name:
+                for attr in sublayer_name.split('.')[1:]:
+                    subset = {sublayer_name: getattr(list(subset.values())[0], attr)}
+
+            sublayer = list(subset.values())[0]
+
+            print(f"  Recovering {layer_key}...")
+
+            # Apply recovery
+            recovery_stats = redistributor.apply(
+                W_dense,
+                sublayer,
+                mask,
+                activation_capture.get_mean_activations(),
+                activation_capture.get_scaler()
+            )
+
+            print(f"    Relative error: {recovery_stats['relative_error']:.6f}")
+
+            # Store stats
+            self.recovery_stats.append({
+                'layer': layer_key,
+                'relative_error': recovery_stats['relative_error'],
+                'num_weights_updated': recovery_stats['num_weights_updated'],
+                'max_update_magnitude': recovery_stats['max_update_magnitude']
+            })
+
+        print(f"Recovery complete!")
+        return self.get_recovery_summary()
+
     def _prune_layer(self, layer_idx, layer, inps, outs,
                      attention_mask, position_ids,
                      sparsity_ratio, sparsity_pattern, nsamples):
@@ -229,13 +301,18 @@ class BasePruner(ABC):
             mask = sparsity_pattern.create_mask(metric, sparsity_ratio)
 
             # BEFORE pruning: Save original weights for lost signal calculation
-            if self.redistributor is not None:
-                W_dense = subset[name].weight.data.clone()
+            W_dense = subset[name].weight.data.clone()
+
+            # Store pruning state for potential recovery later
+            layer_key = f"layer_{layer_idx}_{name}"
+            self.pruning_masks[layer_key] = mask.clone()
+            self.activation_captures[layer_key] = activation_captures[name]
+            self.original_weights[layer_key] = W_dense.clone()
 
             # Apply mask: zero out pruned weights
             subset[name].weight.data[mask] = 0
 
-            # AFTER pruning: Apply weight redistribution (separate from pruning logic)
+            # AFTER pruning: Apply weight redistribution if redistributor is enabled
             if self.redistributor is not None:
                 recovery_stats = self.redistributor.apply(
                     W_dense,  # Original weights before pruning
