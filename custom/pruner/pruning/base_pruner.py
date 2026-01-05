@@ -166,7 +166,7 @@ class BasePruner(ABC):
             redistributor: WeightRedistributor instance to apply
 
         Returns:
-            dict: Summary statistics of recovery
+            dict: Summary statistics with both before and after recovery stats
         """
         if not self.pruning_masks:
             raise RuntimeError("No pruning state stored. Must run prune() first.")
@@ -176,6 +176,7 @@ class BasePruner(ABC):
 
         # Clear previous recovery stats
         self.recovery_stats = []
+        before_recovery_stats = []
 
         # Iterate through stored pruning state
         for layer_key in sorted(self.pruning_masks.keys()):
@@ -203,6 +204,16 @@ class BasePruner(ABC):
 
             print(f"  Recovering {layer_key}...")
 
+            # Compute error statistics BEFORE recovery
+            W_sparse_before = sublayer.weight.data.clone()
+            before_stats = redistributor.compute_error_stats(
+                W_dense,
+                W_sparse_before,
+                mask,
+                mean_activations
+            )
+            print(f"    Before recovery - Relative error: {before_stats['relative_error']:.6f}")
+
             # Apply recovery
             recovery_stats = redistributor.apply(
                 W_dense,
@@ -212,9 +223,15 @@ class BasePruner(ABC):
                 scaler_row
             )
 
-            print(f"    Relative error: {recovery_stats['relative_error']:.6f}")
+            print(f"    After recovery  - Relative error: {recovery_stats['relative_error']:.6f}")
 
-            # Store stats
+            # Store both before and after stats
+            before_recovery_stats.append({
+                'layer': layer_key,
+                'relative_error': before_stats['relative_error'],
+                'total_lost_signal': before_stats['total_lost_signal'],
+            })
+
             self.recovery_stats.append({
                 'layer': layer_key,
                 'relative_error': recovery_stats['relative_error'],
@@ -223,7 +240,43 @@ class BasePruner(ABC):
             })
 
         print(f"Recovery complete!")
-        return self.get_recovery_summary()
+
+        # Compute summary for both before and after
+        before_summary = self._compute_error_summary(before_recovery_stats)
+        after_summary = self.get_recovery_summary()
+
+        return {
+            'before_recovery': before_summary,
+            'after_recovery': after_summary
+        }
+
+    def _compute_error_summary(self, stats_list):
+        """
+        Compute summary statistics from a list of error stats.
+
+        Args:
+            stats_list: List of dictionaries with 'relative_error' and other fields
+
+        Returns:
+            dict: Summary with mean/max relative errors
+        """
+        if not stats_list:
+            return None
+
+        relative_errors = [s['relative_error'] for s in stats_list]
+
+        summary = {
+            'mean_relative_error': sum(relative_errors) / len(relative_errors),
+            'max_relative_error': max(relative_errors),
+            'num_layers': len(stats_list)
+        }
+
+        # Add optional fields if present
+        if 'total_lost_signal' in stats_list[0]:
+            lost_signals = [s['total_lost_signal'] for s in stats_list]
+            summary['mean_lost_signal'] = sum(lost_signals) / len(lost_signals)
+
+        return summary
 
     def _prune_layer(self, layer_idx, layer, inps, outs,
                      attention_mask, position_ids,

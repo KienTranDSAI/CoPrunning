@@ -228,6 +228,57 @@ class WeightRedistributor:
         """
         self.strategy = strategy
 
+    def compute_error_stats(self, W_dense, W_sparse, prune_mask, mean_activations):
+        """
+        Compute error statistics without applying recovery.
+
+        This computes the error between the sparse (pruned) model and the
+        original dense model, without performing any weight redistribution.
+
+        Args:
+            W_dense: Original weights before pruning (out_features, in_features)
+            W_sparse: Sparse weights after pruning (out_features, in_features)
+            prune_mask: Boolean mask (True = pruned)
+            mean_activations: Mean activations E[x] (in_features,)
+
+        Returns:
+            Dictionary of error statistics
+        """
+        device = W_sparse.device
+        original_dtype = W_sparse.dtype
+        compute_dtype = torch.float32
+
+        # Ensure all tensors are on same device and use float32 for computation
+        mean_activations = mean_activations.to(device=device, dtype=compute_dtype)
+        W_dense = W_dense.to(device=device, dtype=compute_dtype)
+        W_sparse = W_sparse.to(dtype=compute_dtype)
+
+        # Compute lost signal per output neuron
+        delta_W = W_dense - W_sparse
+        lost_signal = torch.matmul(delta_W, mean_activations)  # (out_features,)
+
+        # Compute activation signals
+        sparse_signal = torch.matmul(W_sparse, mean_activations)
+        original_signal = torch.matmul(W_dense, mean_activations)
+
+        # Compute relative error
+        relative_error = (
+            torch.norm(sparse_signal - original_signal) /
+            (torch.norm(original_signal) + 1e-8)
+        ).item()
+
+        # Count pruned weights
+        num_pruned_weights = prune_mask.sum().item()
+
+        stats = {
+            'relative_error': relative_error,
+            'total_lost_signal': torch.norm(lost_signal).item(),
+            'num_pruned_weights': num_pruned_weights,
+            'pruning_sparsity': num_pruned_weights / prune_mask.numel(),
+        }
+
+        return stats
+
     def apply(self, W_dense, layer, prune_mask, mean_activations, scaler_row=None):
         """
         Apply weight redistribution to a pruned layer.

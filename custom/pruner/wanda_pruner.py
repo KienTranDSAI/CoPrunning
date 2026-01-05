@@ -240,13 +240,30 @@ def main():
         print(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)")
 
         if recovery_stats:
+            before = recovery_stats.get('before_recovery', {})
+            after = recovery_stats.get('after_recovery', {})
+
             print()
-            print(f"Recovery Error Statistics:")
-            print(f"  Mean activation error: {recovery_stats['mean_relative_error']:.6f}")
-            print(f"  Max activation error:  {recovery_stats['max_relative_error']:.6f}")
-            print(f"  Weights updated:       {recovery_stats['total_weights_updated']:,}")
-            print(f"  Layers processed:      {recovery_stats['num_layers']}")
-            print(f"  Mean max update:       {recovery_stats['mean_max_update']:.6f}")
+            print(f"Error Statistics (Before Recovery):")
+            print(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}")
+            print(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}")
+            print(f"  Layers processed:      {before.get('num_layers', 0)}")
+
+            print()
+            print(f"Error Statistics (After Recovery):")
+            print(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}")
+            print(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}")
+            print(f"  Weights updated:       {after.get('total_weights_updated', 0):,}")
+            print(f"  Layers processed:      {after.get('num_layers', 0)}")
+            print(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}")
+
+            # Show improvement
+            if before.get('mean_relative_error') and after.get('mean_relative_error'):
+                improvement = before['mean_relative_error'] - after['mean_relative_error']
+                improvement_pct = (improvement / before['mean_relative_error']) * 100
+                print()
+                print(f"Recovery Improvement:")
+                print(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)")
     else:
         print(f"  [2] After Pruning:   {ppl:.2f}  (+{ppl - original_ppl:.2f}, +{((ppl - original_ppl) / original_ppl * 100):.2f}%)")
 
@@ -277,12 +294,26 @@ def main():
                 f.write(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)\n")
 
                 if recovery_stats:
-                    f.write(f"\nRecovery Error Statistics:\n")
-                    f.write(f"  Mean activation error: {recovery_stats['mean_relative_error']:.6f}\n")
-                    f.write(f"  Max activation error:  {recovery_stats['max_relative_error']:.6f}\n")
-                    f.write(f"  Weights updated:       {recovery_stats['total_weights_updated']:,}\n")
-                    f.write(f"  Layers processed:      {recovery_stats['num_layers']}\n")
-                    f.write(f"  Mean max update:       {recovery_stats['mean_max_update']:.6f}\n")
+                    before = recovery_stats.get('before_recovery', {})
+                    after = recovery_stats.get('after_recovery', {})
+
+                    f.write(f"\nError Statistics (Before Recovery):\n")
+                    f.write(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}\n")
+                    f.write(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}\n")
+                    f.write(f"  Layers processed:      {before.get('num_layers', 0)}\n")
+
+                    f.write(f"\nError Statistics (After Recovery):\n")
+                    f.write(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}\n")
+                    f.write(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}\n")
+                    f.write(f"  Weights updated:       {after.get('total_weights_updated', 0):,}\n")
+                    f.write(f"  Layers processed:      {after.get('num_layers', 0)}\n")
+                    f.write(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}\n")
+
+                    if before.get('mean_relative_error') and after.get('mean_relative_error'):
+                        improvement = before['mean_relative_error'] - after['mean_relative_error']
+                        improvement_pct = (improvement / before['mean_relative_error']) * 100
+                        f.write(f"\nRecovery Improvement:\n")
+                        f.write(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)\n")
             else:
                 f.write(f"  [2] After Pruning:  {ppl:.2f}  (+{ppl - original_ppl:.2f})\n")
 
