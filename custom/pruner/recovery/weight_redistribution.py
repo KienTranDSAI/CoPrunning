@@ -270,9 +270,13 @@ class WeightRedistributor:
         # Count pruned weights
         num_pruned_weights = prune_mask.sum().item()
 
+        # Compute sum of absolute errors
+        sum_of_errors = torch.sum(torch.abs(lost_signal)).item()
+
         stats = {
             'relative_error': relative_error,
             'total_lost_signal': torch.norm(lost_signal).item(),
+            'sum_of_errors': sum_of_errors,
             'num_pruned_weights': num_pruned_weights,
             'pruning_sparsity': num_pruned_weights / prune_mask.numel(),
         }
@@ -360,14 +364,29 @@ class WeightRedistributor:
         recovered_signal = torch.matmul(W_recovered, mean_activations)
         original_signal = torch.matmul(W_dense, mean_activations)
 
+        # Compute new lost signal after recovery
+        delta_W_after = W_dense - W_recovered
+        lost_signal_after = torch.matmul(delta_W_after, mean_activations)
+
         relative_error = (
             torch.norm(recovered_signal - original_signal) /
             (torch.norm(original_signal) + 1e-8)
         ).item()
 
+        # Compute sum of absolute errors (before and after recovery)
+        sum_of_errors = torch.sum(torch.abs(lost_signal)).item()
+        sum_of_errors_after = torch.sum(torch.abs(lost_signal_after)).item()
+
+        # Compute sum of updated error: sum of |C[i,j] * ε_i|
+        # This represents the total magnitude of weight updates
+        sum_of_updated_error = torch.sum(torch.abs(delta_weights)).item()
+
         stats = {
             'relative_error': relative_error,
             'total_lost_signal': torch.norm(lost_signal).item(),
+            'sum_of_errors': sum_of_errors,
+            'sum_of_errors_after': sum_of_errors_after,
+            'sum_of_updated_error': sum_of_updated_error,
             'num_weights_updated': (C != 0).sum().item(),
             'max_update_magnitude': torch.abs(delta_weights).max().item(),
         }

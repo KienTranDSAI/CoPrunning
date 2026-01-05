@@ -247,12 +247,15 @@ def main():
             print(f"Error Statistics (Before Recovery):")
             print(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}")
             print(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}")
+            print(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}")
             print(f"  Layers processed:      {before.get('num_layers', 0)}")
 
             print()
             print(f"Error Statistics (After Recovery):")
             print(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}")
             print(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}")
+            print(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}")
+            print(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}")
             print(f"  Weights updated:       {after.get('total_weights_updated', 0):,}")
             print(f"  Layers processed:      {after.get('num_layers', 0)}")
             print(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}")
@@ -264,6 +267,12 @@ def main():
                 print()
                 print(f"Recovery Improvement:")
                 print(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)")
+
+                # Show sum of errors improvement
+                if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
+                    sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
+                    sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
+                    print(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)")
     else:
         print(f"  [2] After Pruning:   {ppl:.2f}  (+{ppl - original_ppl:.2f}, +{((ppl - original_ppl) / original_ppl * 100):.2f}%)")
 
@@ -300,11 +309,14 @@ def main():
                     f.write(f"\nError Statistics (Before Recovery):\n")
                     f.write(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}\n")
                     f.write(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}\n")
+                    f.write(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}\n")
                     f.write(f"  Layers processed:      {before.get('num_layers', 0)}\n")
 
                     f.write(f"\nError Statistics (After Recovery):\n")
                     f.write(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}\n")
                     f.write(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}\n")
+                    f.write(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}\n")
+                    f.write(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}\n")
                     f.write(f"  Weights updated:       {after.get('total_weights_updated', 0):,}\n")
                     f.write(f"  Layers processed:      {after.get('num_layers', 0)}\n")
                     f.write(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}\n")
@@ -314,6 +326,12 @@ def main():
                         improvement_pct = (improvement / before['mean_relative_error']) * 100
                         f.write(f"\nRecovery Improvement:\n")
                         f.write(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)\n")
+
+                        # Show sum of errors improvement
+                        if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
+                            sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
+                            sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
+                            f.write(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)\n")
             else:
                 f.write(f"  [2] After Pruning:  {ppl:.2f}  (+{ppl - original_ppl:.2f})\n")
 

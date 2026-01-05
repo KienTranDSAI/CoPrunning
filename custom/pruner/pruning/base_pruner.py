@@ -147,13 +147,25 @@ class BasePruner(ABC):
         num_weights = [s['num_weights_updated'] for s in self.recovery_stats]
         max_updates = [s['max_update_magnitude'] for s in self.recovery_stats]
 
-        return {
+        summary = {
             'mean_relative_error': sum(relative_errors) / len(relative_errors),
             'max_relative_error': max(relative_errors),
             'total_weights_updated': sum(num_weights),
             'mean_max_update': sum(max_updates) / len(max_updates),
             'num_layers': len(self.recovery_stats)
         }
+
+        # Add sum statistics if available
+        if 'sum_of_errors' in self.recovery_stats[0]:
+            summary['sum_of_errors'] = sum(s['sum_of_errors'] for s in self.recovery_stats)
+
+        if 'sum_of_errors_after' in self.recovery_stats[0]:
+            summary['sum_of_errors_after'] = sum(s['sum_of_errors_after'] for s in self.recovery_stats)
+
+        if 'sum_of_updated_error' in self.recovery_stats[0]:
+            summary['sum_of_updated_error'] = sum(s['sum_of_updated_error'] for s in self.recovery_stats)
+
+        return summary
 
     def apply_recovery(self, redistributor):
         """
@@ -230,13 +242,17 @@ class BasePruner(ABC):
                 'layer': layer_key,
                 'relative_error': before_stats['relative_error'],
                 'total_lost_signal': before_stats['total_lost_signal'],
+                'sum_of_errors': before_stats.get('sum_of_errors', 0),
             })
 
             self.recovery_stats.append({
                 'layer': layer_key,
                 'relative_error': recovery_stats['relative_error'],
                 'num_weights_updated': recovery_stats['num_weights_updated'],
-                'max_update_magnitude': recovery_stats['max_update_magnitude']
+                'max_update_magnitude': recovery_stats['max_update_magnitude'],
+                'sum_of_errors': recovery_stats.get('sum_of_errors', 0),
+                'sum_of_errors_after': recovery_stats.get('sum_of_errors_after', 0),
+                'sum_of_updated_error': recovery_stats.get('sum_of_updated_error', 0),
             })
 
         print(f"Recovery complete!")
@@ -275,6 +291,18 @@ class BasePruner(ABC):
         if 'total_lost_signal' in stats_list[0]:
             lost_signals = [s['total_lost_signal'] for s in stats_list]
             summary['mean_lost_signal'] = sum(lost_signals) / len(lost_signals)
+
+        # Add sum of errors if present
+        if 'sum_of_errors' in stats_list[0]:
+            summary['sum_of_errors'] = sum(s['sum_of_errors'] for s in stats_list)
+
+        # Add sum of errors after recovery if present
+        if 'sum_of_errors_after' in stats_list[0]:
+            summary['sum_of_errors_after'] = sum(s['sum_of_errors_after'] for s in stats_list)
+
+        # Add sum of updated error if present
+        if 'sum_of_updated_error' in stats_list[0]:
+            summary['sum_of_updated_error'] = sum(s['sum_of_updated_error'] for s in stats_list)
 
         return summary
 
