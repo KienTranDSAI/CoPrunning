@@ -51,9 +51,6 @@ from pruning.wanda import WandaPruner
 from recovery.weight_redistribution import (
     WeightRedistributor,
     InverseWandaStrategy,
-    ProportionalBufferStrategy,
-    UniformStrategy,
-    MagnitudeWeightedStrategy
 )
 
 
