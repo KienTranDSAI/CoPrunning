@@ -147,6 +147,7 @@ def main():
     # Initialize perplexity variables
     pruned_ppl = None
     recovered_ppl = None
+    recovery_stats = None
 
     if args.use_recovery:
         # ================================================================
@@ -172,6 +173,9 @@ def main():
         pruned_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
         print(f"Pruned model perplexity: {pruned_ppl:.2f}")
         print(f"Perplexity increase from pruning: {pruned_ppl - original_ppl:.2f}")
+
+        # Get pruning-only stats (no recovery stats since redistributor was None)
+        pruned_stats = None
 
         # ================================================================
         # STAGE 2: Reload model and prune WITH recovery
@@ -207,6 +211,9 @@ def main():
         recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
         print(f"Recovered model perplexity: {recovered_ppl:.2f}")
         print(f"Recovery improvement: {pruned_ppl - recovered_ppl:.2f}")
+
+        # Get recovery statistics
+        recovery_stats = pruner_with_recovery.get_recovery_summary()
 
         ppl = recovered_ppl  # Final perplexity
 
@@ -247,8 +254,17 @@ def main():
         print(f"  [3] After Recovery:  {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f}, +{((recovered_ppl - original_ppl) / original_ppl * 100):.2f}%)")
         print()
         print(f"Recovery Impact:")
-        print(f"  Recovered {pruned_ppl - recovered_ppl:.2f} perplexity points")
+        print(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points")
         print(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)")
+
+        if recovery_stats:
+            print()
+            print(f"Recovery Error Statistics:")
+            print(f"  Mean activation error: {recovery_stats['mean_relative_error']:.6f}")
+            print(f"  Max activation error:  {recovery_stats['max_relative_error']:.6f}")
+            print(f"  Weights updated:       {recovery_stats['total_weights_updated']:,}")
+            print(f"  Layers processed:      {recovery_stats['num_layers']}")
+            print(f"  Mean max update:       {recovery_stats['mean_max_update']:.6f}")
     else:
         print(f"  [2] After Pruning:   {ppl:.2f}  (+{ppl - original_ppl:.2f}, +{((ppl - original_ppl) / original_ppl * 100):.2f}%)")
 
@@ -275,8 +291,16 @@ def main():
                 f.write(f"  [2] After Pruning:  {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f})\n")
                 f.write(f"  [3] After Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f})\n")
                 f.write(f"\nRecovery Impact:\n")
-                f.write(f"  Recovered {pruned_ppl - recovered_ppl:.2f} perplexity points\n")
+                f.write(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points\n")
                 f.write(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)\n")
+
+                if recovery_stats:
+                    f.write(f"\nRecovery Error Statistics:\n")
+                    f.write(f"  Mean activation error: {recovery_stats['mean_relative_error']:.6f}\n")
+                    f.write(f"  Max activation error:  {recovery_stats['max_relative_error']:.6f}\n")
+                    f.write(f"  Weights updated:       {recovery_stats['total_weights_updated']:,}\n")
+                    f.write(f"  Layers processed:      {recovery_stats['num_layers']}\n")
+                    f.write(f"  Mean max update:       {recovery_stats['mean_max_update']:.6f}\n")
             else:
                 f.write(f"  [2] After Pruning:  {ppl:.2f}  (+{ppl - original_ppl:.2f})\n")
 

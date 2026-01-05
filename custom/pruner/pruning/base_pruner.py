@@ -50,6 +50,7 @@ class BasePruner(ABC):
         self.tokenizer = tokenizer
         self.device = device
         self.redistributor = redistributor
+        self.recovery_stats = []  # Store recovery statistics
 
     def prune(self, sparsity_ratio, sparsity_pattern, nsamples=128,
               dataset="c4", seed=0):
@@ -126,6 +127,28 @@ class BasePruner(ABC):
             Shape: (out_features, in_features)
         """
         pass
+
+    def get_recovery_summary(self):
+        """
+        Get summary statistics of weight redistribution recovery.
+
+        Returns:
+            dict: Summary with mean/max relative errors, or None if no recovery was applied
+        """
+        if not self.recovery_stats:
+            return None
+
+        relative_errors = [s['relative_error'] for s in self.recovery_stats]
+        num_weights = [s['num_weights_updated'] for s in self.recovery_stats]
+        max_updates = [s['max_update_magnitude'] for s in self.recovery_stats]
+
+        return {
+            'mean_relative_error': sum(relative_errors) / len(relative_errors),
+            'max_relative_error': max(relative_errors),
+            'total_weights_updated': sum(num_weights),
+            'mean_max_update': sum(max_updates) / len(max_updates),
+            'num_layers': len(self.recovery_stats)
+        }
 
     def _prune_layer(self, layer_idx, layer, inps, outs,
                      attention_mask, position_ids,
@@ -222,6 +245,13 @@ class BasePruner(ABC):
                     activation_captures[name].get_scaler()  # L2-norm squared for Wanda
                 )
                 print(f"    Recovery - Relative error: {recovery_stats['relative_error']:.6f}")
+                # Store stats for later aggregation
+                self.recovery_stats.append({
+                    'layer': f"layer_{layer_idx}_{name}",
+                    'relative_error': recovery_stats['relative_error'],
+                    'num_weights_updated': recovery_stats['num_weights_updated'],
+                    'max_update_magnitude': recovery_stats['max_update_magnitude']
+                })
 
             # Report sparsity for this sublayer
             total_weights = mask.numel()
