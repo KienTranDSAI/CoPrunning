@@ -323,10 +323,23 @@ class WeightRedistributor:
         )
 
         # 3. Compute weight updates
-        # For each weight w_ij: Δw_ij = C[i,j] * ε_i
-        # where ε_i is the lost signal already computed
+        # For each weight w_ij: Δw_ij = C[i,j] * ε_i / mean_activations[j]
+        # This accounts for the fact that different inputs have different activation magnitudes
+        # The recovered output should be: delta_W @ mean_activations = lost_signal
         # Broadcasting: lost_signal (out_features,) → (out_features, 1)
-        delta_weights = C * lost_signal.reshape(-1, 1)
+
+        # Original (incorrect) formula:
+        # delta_weights = C * lost_signal.reshape(-1, 1)
+
+        # Corrected formula that accounts for activation magnitudes:
+        # Divide by mean_activations to normalize, then multiply by lost_signal
+        epsilon = 1e-8  # Avoid division by zero
+        activation_normalized_C = C / (mean_activations.reshape(1, -1) + epsilon)
+        # Renormalize so each row sums to 1 (weighted by activations)
+        row_sums = torch.sum(activation_normalized_C * mean_activations.reshape(1, -1), dim=1, keepdim=True)
+        activation_normalized_C = activation_normalized_C / (row_sums + epsilon)
+
+        delta_weights = activation_normalized_C * lost_signal.reshape(-1, 1)
 
         # Clamp delta_weights to prevent extreme values
         max_abs_delta = torch.abs(delta_weights).max()
