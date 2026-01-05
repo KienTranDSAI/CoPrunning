@@ -80,6 +80,11 @@ def main():
         help='Apply weight redistribution after pruning'
     )
     parser.add_argument(
+        '--recovery_mode', type=str, default='post_process',
+        choices=['during_pruning', 'post_process'],
+        help='When to apply recovery: during_pruning (layer-by-layer) or post_process (after all pruning)'
+    )
+    parser.add_argument(
         '--inverse_wanda_update_fraction', type=float, default=0.3,
         help='Fraction of survivors to update (0.0-1.0, default: 0.3 = 30%%)'
     )
@@ -150,54 +155,92 @@ def main():
     recovery_stats = None
 
     if args.use_recovery:
-        # ================================================================
-        # STAGE 1: Prune WITHOUT recovery to measure pruning-only impact
-        # ================================================================
-        print(f"\n[4/7] Running Wanda pruning WITHOUT recovery...")
-        pruner = WandaPruner(model, tokenizer, device, redistributor=None)
-        pruner.prune(
-            sparsity_ratio=args.sparsity_ratio,
-            sparsity_pattern=sparsity_pattern,
-            nsamples=args.nsamples,
-            dataset=args.dataset,
-            seed=args.seed
-        )
-
-        # Check sparsity after pruning
-        print(f"\n[5/7] Checking sparsity after pruning...")
-        actual_sparsity = check_sparsity(model)
-        print(f"Actual sparsity: {actual_sparsity:.4f}")
-
-        # Evaluate pruned-only model
-        print(f"\n[6/7] Evaluating PRUNED model (before recovery)...")
-        pruned_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
-        print(f"Pruned model perplexity: {pruned_ppl:.2f}")
-        print(f"Perplexity increase from pruning: {pruned_ppl - original_ppl:.2f}")
-
-        # ================================================================
-        # STAGE 2: Apply recovery to the SAME pruned model (no re-pruning!)
-        # ================================================================
-        print(f"\n[7/7] Applying weight redistribution to pruned model...")
-        print(f"  Strategy: Inverse Wanda")
-        print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
-        print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
-
+        # Initialize recovery strategy
         strategy = InverseWandaStrategy(
             update_fraction=args.inverse_wanda_update_fraction,
             max_relative_update=args.inverse_wanda_max_relative_update
         )
         redistributor = WeightRedistributor(strategy)
 
-        # Apply recovery using stored pruning state (no re-pruning!)
-        recovery_stats = pruner.apply_recovery(redistributor)
+        if args.recovery_mode == 'during_pruning':
+            # ================================================================
+            # MODE 1: Apply recovery DURING pruning (layer-by-layer)
+            # ================================================================
+            print(f"\n[4/5] Running Wanda pruning WITH recovery (layer-by-layer)...")
+            print(f"  Strategy: Inverse Wanda")
+            print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
+            print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
 
-        # Evaluate recovered model
-        print(f"\nEvaluating RECOVERED model (after recovery)...")
-        recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
-        print(f"Recovered model perplexity: {recovered_ppl:.2f}")
-        print(f"Recovery improvement: {pruned_ppl - recovered_ppl:.2f}")
+            pruner = WandaPruner(model, tokenizer, device, redistributor=redistributor)
+            pruner.prune(
+                sparsity_ratio=args.sparsity_ratio,
+                sparsity_pattern=sparsity_pattern,
+                nsamples=args.nsamples,
+                dataset=args.dataset,
+                seed=args.seed
+            )
 
-        ppl = recovered_ppl  # Final perplexity
+            # Check sparsity after pruning
+            print(f"\n[5/5] Checking sparsity after pruning with recovery...")
+            actual_sparsity = check_sparsity(model)
+            print(f"Actual sparsity: {actual_sparsity:.4f}")
+
+            # Get recovery stats
+            recovery_stats = {
+                'before_recovery': None,  # Not applicable for during_pruning mode
+                'after_recovery': pruner.get_recovery_summary()
+            }
+
+            # Evaluate recovered model
+            print(f"\nEvaluating model (with recovery applied during pruning)...")
+            recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+            print(f"Model perplexity: {recovered_ppl:.2f}")
+
+            pruned_ppl = None  # Not measured separately
+            ppl = recovered_ppl
+
+        else:  # post_process mode
+            # ================================================================
+            # MODE 2: Apply recovery AFTER pruning (post-processing)
+            # ================================================================
+            # STAGE 1: Prune WITHOUT recovery to measure pruning-only impact
+            print(f"\n[4/7] Running Wanda pruning WITHOUT recovery...")
+            pruner = WandaPruner(model, tokenizer, device, redistributor=None)
+            pruner.prune(
+                sparsity_ratio=args.sparsity_ratio,
+                sparsity_pattern=sparsity_pattern,
+                nsamples=args.nsamples,
+                dataset=args.dataset,
+                seed=args.seed
+            )
+
+            # Check sparsity after pruning
+            print(f"\n[5/7] Checking sparsity after pruning...")
+            actual_sparsity = check_sparsity(model)
+            print(f"Actual sparsity: {actual_sparsity:.4f}")
+
+            # Evaluate pruned-only model
+            print(f"\n[6/7] Evaluating PRUNED model (before recovery)...")
+            pruned_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+            print(f"Pruned model perplexity: {pruned_ppl:.2f}")
+            print(f"Perplexity increase from pruning: {pruned_ppl - original_ppl:.2f}")
+
+            # STAGE 2: Apply recovery to the SAME pruned model (no re-pruning!)
+            print(f"\n[7/7] Applying weight redistribution to pruned model...")
+            print(f"  Strategy: Inverse Wanda")
+            print(f"  Update fraction: {args.inverse_wanda_update_fraction:.1%}")
+            print(f"  Max relative update: {args.inverse_wanda_max_relative_update:.1f}x")
+
+            # Apply recovery using stored pruning state (no re-pruning!)
+            recovery_stats = pruner.apply_recovery(redistributor)
+
+            # Evaluate recovered model
+            print(f"\nEvaluating RECOVERED model (after recovery)...")
+            recovered_ppl = evaluator.evaluate(dataset="wikitext2", device=device)
+            print(f"Recovered model perplexity: {recovered_ppl:.2f}")
+            print(f"Recovery improvement: {pruned_ppl - recovered_ppl:.2f}")
+
+            ppl = recovered_ppl  # Final perplexity
 
     else:
         # Standard pruning without recovery
@@ -232,47 +275,65 @@ def main():
     print(f"  [1] Original:        {original_ppl:.2f}")
 
     if args.use_recovery:
-        print(f"  [2] After Pruning:   {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f}, +{((pruned_ppl - original_ppl) / original_ppl * 100):.2f}%)")
-        print(f"  [3] After Recovery:  {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f}, +{((recovered_ppl - original_ppl) / original_ppl * 100):.2f}%)")
-        print()
-        print(f"Recovery Impact:")
-        print(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points")
-        print(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)")
+        if args.recovery_mode == 'during_pruning':
+            print(f"  [2] After Pruning+Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f}, +{((recovered_ppl - original_ppl) / original_ppl * 100):.2f}%)")
+            print()
+            print(f"Recovery Mode: Layer-by-layer during pruning")
+        else:
+            print(f"  [2] After Pruning:   {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f}, +{((pruned_ppl - original_ppl) / original_ppl * 100):.2f}%)")
+            print(f"  [3] After Recovery:  {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f}, +{((recovered_ppl - original_ppl) / original_ppl * 100):.2f}%)")
+            print()
+            print(f"Recovery Impact:")
+            print(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points")
+            print(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)")
 
         if recovery_stats:
             before = recovery_stats.get('before_recovery', {})
             after = recovery_stats.get('after_recovery', {})
 
-            print()
-            print(f"Error Statistics (Before Recovery):")
-            print(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}")
-            print(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}")
-            print(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}")
-            print(f"  Layers processed:      {before.get('num_layers', 0)}")
-
-            print()
-            print(f"Error Statistics (After Recovery):")
-            print(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}")
-            print(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}")
-            print(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}")
-            print(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}")
-            print(f"  Weights updated:       {after.get('total_weights_updated', 0):,}")
-            print(f"  Layers processed:      {after.get('num_layers', 0)}")
-            print(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}")
-
-            # Show improvement
-            if before.get('mean_relative_error') and after.get('mean_relative_error'):
-                improvement = before['mean_relative_error'] - after['mean_relative_error']
-                improvement_pct = (improvement / before['mean_relative_error']) * 100
+            if args.recovery_mode == 'during_pruning':
+                # During pruning mode: only show after-recovery stats
                 print()
-                print(f"Recovery Improvement:")
-                print(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)")
+                print(f"Recovery Statistics (applied during pruning):")
+                print(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}")
+                print(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}")
+                print(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}")
+                print(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}")
+                print(f"  Weights updated:       {after.get('total_weights_updated', 0):,}")
+                print(f"  Layers processed:      {after.get('num_layers', 0)}")
+                print(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}")
+            else:
+                # Post-process mode: show before and after stats
+                print()
+                print(f"Error Statistics (Before Recovery):")
+                print(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}")
+                print(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}")
+                print(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}")
+                print(f"  Layers processed:      {before.get('num_layers', 0)}")
 
-                # Show sum of errors improvement
-                if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
-                    sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
-                    sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
-                    print(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)")
+                print()
+                print(f"Error Statistics (After Recovery):")
+                print(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}")
+                print(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}")
+                print(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}")
+                print(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}")
+                print(f"  Weights updated:       {after.get('total_weights_updated', 0):,}")
+                print(f"  Layers processed:      {after.get('num_layers', 0)}")
+                print(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}")
+
+                # Show improvement
+                if before.get('mean_relative_error') and after.get('mean_relative_error'):
+                    improvement = before['mean_relative_error'] - after['mean_relative_error']
+                    improvement_pct = (improvement / before['mean_relative_error']) * 100
+                    print()
+                    print(f"Recovery Improvement:")
+                    print(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)")
+
+                    # Show sum of errors improvement
+                    if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
+                        sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
+                        sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
+                        print(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)")
     else:
         print(f"  [2] After Pruning:   {ppl:.2f}  (+{ppl - original_ppl:.2f}, +{((ppl - original_ppl) / original_ppl * 100):.2f}%)")
 
@@ -296,42 +357,56 @@ def main():
             f.write(f"  [1] Original:       {original_ppl:.2f}\n")
 
             if args.use_recovery:
-                f.write(f"  [2] After Pruning:  {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f})\n")
-                f.write(f"  [3] After Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f})\n")
-                f.write(f"\nRecovery Impact:\n")
-                f.write(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points\n")
-                f.write(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)\n")
+                if args.recovery_mode == 'during_pruning':
+                    f.write(f"  [2] After Pruning+Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f})\n")
+                    f.write(f"\nRecovery Mode: Layer-by-layer during pruning\n")
+                else:
+                    f.write(f"  [2] After Pruning:  {pruned_ppl:.2f}  (+{pruned_ppl - original_ppl:.2f})\n")
+                    f.write(f"  [3] After Recovery: {recovered_ppl:.2f}  (+{recovered_ppl - original_ppl:.2f})\n")
+                    f.write(f"\nRecovery Impact:\n")
+                    f.write(f"  Perplexity recovered: {pruned_ppl - recovered_ppl:.2f} points\n")
+                    f.write(f"  ({((pruned_ppl - recovered_ppl) / (pruned_ppl - original_ppl) * 100):.1f}% of pruning degradation)\n")
 
                 if recovery_stats:
                     before = recovery_stats.get('before_recovery', {})
                     after = recovery_stats.get('after_recovery', {})
 
-                    f.write(f"\nError Statistics (Before Recovery):\n")
-                    f.write(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}\n")
-                    f.write(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}\n")
-                    f.write(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}\n")
-                    f.write(f"  Layers processed:      {before.get('num_layers', 0)}\n")
+                    if args.recovery_mode == 'during_pruning':
+                        f.write(f"\nRecovery Statistics (applied during pruning):\n")
+                        f.write(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}\n")
+                        f.write(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}\n")
+                        f.write(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}\n")
+                        f.write(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}\n")
+                        f.write(f"  Weights updated:       {after.get('total_weights_updated', 0):,}\n")
+                        f.write(f"  Layers processed:      {after.get('num_layers', 0)}\n")
+                        f.write(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}\n")
+                    else:
+                        f.write(f"\nError Statistics (Before Recovery):\n")
+                        f.write(f"  Mean activation error: {before.get('mean_relative_error', 0):.6f}\n")
+                        f.write(f"  Max activation error:  {before.get('max_relative_error', 0):.6f}\n")
+                        f.write(f"  Sum of errors:         {before.get('sum_of_errors', 0):.6f}\n")
+                        f.write(f"  Layers processed:      {before.get('num_layers', 0)}\n")
 
-                    f.write(f"\nError Statistics (After Recovery):\n")
-                    f.write(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}\n")
-                    f.write(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}\n")
-                    f.write(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}\n")
-                    f.write(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}\n")
-                    f.write(f"  Weights updated:       {after.get('total_weights_updated', 0):,}\n")
-                    f.write(f"  Layers processed:      {after.get('num_layers', 0)}\n")
-                    f.write(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}\n")
+                        f.write(f"\nError Statistics (After Recovery):\n")
+                        f.write(f"  Mean activation error: {after.get('mean_relative_error', 0):.6f}\n")
+                        f.write(f"  Max activation error:  {after.get('max_relative_error', 0):.6f}\n")
+                        f.write(f"  Sum of errors:         {after.get('sum_of_errors_after', 0):.6f}\n")
+                        f.write(f"  Sum of updated error:  {after.get('sum_of_updated_error', 0):.6f}\n")
+                        f.write(f"  Weights updated:       {after.get('total_weights_updated', 0):,}\n")
+                        f.write(f"  Layers processed:      {after.get('num_layers', 0)}\n")
+                        f.write(f"  Mean max update:       {after.get('mean_max_update', 0):.6f}\n")
 
-                    if before.get('mean_relative_error') and after.get('mean_relative_error'):
-                        improvement = before['mean_relative_error'] - after['mean_relative_error']
-                        improvement_pct = (improvement / before['mean_relative_error']) * 100
-                        f.write(f"\nRecovery Improvement:\n")
-                        f.write(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)\n")
+                        if before.get('mean_relative_error') and after.get('mean_relative_error'):
+                            improvement = before['mean_relative_error'] - after['mean_relative_error']
+                            improvement_pct = (improvement / before['mean_relative_error']) * 100
+                            f.write(f"\nRecovery Improvement:\n")
+                            f.write(f"  Mean error reduced by: {improvement:.6f} ({improvement_pct:.2f}%)\n")
 
-                        # Show sum of errors improvement
-                        if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
-                            sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
-                            sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
-                            f.write(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)\n")
+                            # Show sum of errors improvement
+                            if before.get('sum_of_errors') and after.get('sum_of_errors_after'):
+                                sum_improvement = before['sum_of_errors'] - after['sum_of_errors_after']
+                                sum_improvement_pct = (sum_improvement / before['sum_of_errors']) * 100
+                                f.write(f"  Sum of errors reduced by: {sum_improvement:.6f} ({sum_improvement_pct:.2f}%)\n")
             else:
                 f.write(f"  [2] After Pruning:  {ppl:.2f}  (+{ppl - original_ppl:.2f})\n")
 

@@ -50,6 +50,7 @@ from pruning.sparsity_patterns import UnstructuredSparsity, NMSparsity
 from pruning.wanda import WandaPruner
 from recovery.weight_redistribution import (
     WeightRedistributor,
+    InverseWandaStrategy,
     ProportionalBufferStrategy,
     UniformStrategy,
     MagnitudeWeightedStrategy
@@ -397,13 +398,21 @@ def main():
         help='Apply weight redistribution after pruning'
     )
     parser.add_argument(
-        '--recovery_strategy', type=str, default='proportional_buffer',
-        choices=['proportional_buffer', 'uniform', 'magnitude_weighted'],
+        '--recovery_strategy', type=str, default='inverse_wanda',
+        choices=['inverse_wanda', 'proportional_buffer', 'uniform', 'magnitude_weighted'],
         help='Strategy for redistributing lost signal'
     )
     parser.add_argument(
         '--protected_tier_pct', type=float, default=0.2,
         help='Percentage of surviving weights to protect (proportional_buffer only)'
+    )
+    parser.add_argument(
+        '--inverse_wanda_update_fraction', type=float, default=0.3,
+        help='Fraction of survivors to update for inverse_wanda (0.0-1.0, default: 0.3)'
+    )
+    parser.add_argument(
+        '--inverse_wanda_max_relative_update', type=float, default=2.0,
+        help='Max update relative to weight magnitude for inverse_wanda (default: 2.0)'
     )
 
     # Output
@@ -481,7 +490,12 @@ def main():
     # Create redistributor if enabled
     redistributor = None
     if args.use_recovery:
-        if args.recovery_strategy == 'proportional_buffer':
+        if args.recovery_strategy == 'inverse_wanda':
+            strategy = InverseWandaStrategy(
+                update_fraction=args.inverse_wanda_update_fraction,
+                max_relative_update=args.inverse_wanda_max_relative_update
+            )
+        elif args.recovery_strategy == 'proportional_buffer':
             strategy = ProportionalBufferStrategy(args.protected_tier_pct)
         elif args.recovery_strategy == 'uniform':
             strategy = UniformStrategy()
@@ -560,7 +574,12 @@ def main():
     # Recreate redistributor if needed
     redistributor_post = None
     if args.use_recovery:
-        if args.recovery_strategy == 'proportional_buffer':
+        if args.recovery_strategy == 'inverse_wanda':
+            strategy = InverseWandaStrategy(
+                update_fraction=args.inverse_wanda_update_fraction,
+                max_relative_update=args.inverse_wanda_max_relative_update
+            )
+        elif args.recovery_strategy == 'proportional_buffer':
             strategy = ProportionalBufferStrategy(args.protected_tier_pct)
         elif args.recovery_strategy == 'uniform':
             strategy = UniformStrategy()
@@ -591,6 +610,39 @@ def main():
     print("Moved post-pruning activations to CPU")
 
     model.config.use_cache = use_cache
+
+    # Display recovery statistics if recovery was applied
+    if args.use_recovery and pruner.recovery_stats:
+        print("\n" + "="*80)
+        print("RECOVERY STATISTICS")
+        print("="*80)
+        recovery_summary = pruner.get_recovery_summary()
+        if recovery_summary:
+            print(f"Strategy: {args.recovery_strategy}")
+            print(f"Mean activation error:   {recovery_summary.get('mean_relative_error', 0):.6f}")
+            print(f"Max activation error:    {recovery_summary.get('max_relative_error', 0):.6f}")
+            print(f"Weights updated:         {recovery_summary.get('total_weights_updated', 0):,}")
+            print(f"Mean max update:         {recovery_summary.get('mean_max_update', 0):.6f}")
+
+            # Display new sum statistics
+            if 'sum_of_errors' in recovery_summary:
+                print(f"\nSum of errors (before):  {recovery_summary.get('sum_of_errors', 0):.6f}")
+            if 'sum_of_errors_after' in recovery_summary:
+                print(f"Sum of errors (after):   {recovery_summary.get('sum_of_errors_after', 0):.6f}")
+            if 'sum_of_updated_error' in recovery_summary:
+                print(f"Sum of updated error:    {recovery_summary.get('sum_of_updated_error', 0):.6f}")
+
+            # Calculate improvement if both before and after are available
+            if 'sum_of_errors' in recovery_summary and 'sum_of_errors_after' in recovery_summary:
+                sum_before = recovery_summary['sum_of_errors']
+                sum_after = recovery_summary['sum_of_errors_after']
+                if sum_before > 0:
+                    improvement = sum_before - sum_after
+                    improvement_pct = (improvement / sum_before) * 100
+                    print(f"\nSum error improvement:   {improvement:.6f} ({improvement_pct:.2f}%)")
+
+            print(f"Layers processed:        {recovery_summary.get('num_layers', 0)}")
+        print("="*80)
 
     # Clean up GPU memory before analysis
     del inps_post, target_layer_post

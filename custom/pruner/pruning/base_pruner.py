@@ -415,7 +415,10 @@ class BasePruner(ABC):
                     'layer': f"layer_{layer_idx}_{name}",
                     'relative_error': recovery_stats['relative_error'],
                     'num_weights_updated': recovery_stats['num_weights_updated'],
-                    'max_update_magnitude': recovery_stats['max_update_magnitude']
+                    'max_update_magnitude': recovery_stats['max_update_magnitude'],
+                    'sum_of_errors': recovery_stats.get('sum_of_errors', 0),
+                    'sum_of_errors_after': recovery_stats.get('sum_of_errors_after', 0),
+                    'sum_of_updated_error': recovery_stats.get('sum_of_updated_error', 0),
                 })
 
             # Report sparsity for this sublayer
