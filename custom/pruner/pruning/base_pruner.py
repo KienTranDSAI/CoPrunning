@@ -179,9 +179,12 @@ class BasePruner(ABC):
 
         # Iterate through stored pruning state
         for layer_key in sorted(self.pruning_masks.keys()):
-            mask = self.pruning_masks[layer_key]
-            activation_capture = self.activation_captures[layer_key]
-            W_dense = self.original_weights[layer_key]
+            # Move stored tensors from CPU to GPU
+            mask = self.pruning_masks[layer_key].to(self.device)
+            activation_stats = self.activation_captures[layer_key]
+            mean_activations = activation_stats['mean_activations'].to(self.device)
+            scaler_row = activation_stats['scaler_row'].to(self.device)
+            W_dense = self.original_weights[layer_key].to(self.device)
 
             # Parse layer key to get layer reference
             # Format: "layer_{layer_idx}_{sublayer_name}"
@@ -205,8 +208,8 @@ class BasePruner(ABC):
                 W_dense,
                 sublayer,
                 mask,
-                activation_capture.get_mean_activations(),
-                activation_capture.get_scaler()
+                mean_activations,
+                scaler_row
             )
 
             print(f"    Relative error: {recovery_stats['relative_error']:.6f}")
@@ -303,11 +306,15 @@ class BasePruner(ABC):
             # BEFORE pruning: Save original weights for lost signal calculation
             W_dense = subset[name].weight.data.clone()
 
-            # Store pruning state for potential recovery later
+            # Store pruning state for potential recovery later (on CPU to save GPU memory)
             layer_key = f"layer_{layer_idx}_{name}"
-            self.pruning_masks[layer_key] = mask.clone()
-            self.activation_captures[layer_key] = activation_captures[name]
-            self.original_weights[layer_key] = W_dense.clone()
+            self.pruning_masks[layer_key] = mask.clone().cpu()
+            # Store only the needed statistics, not the whole ActivationCapture object
+            self.activation_captures[layer_key] = {
+                'mean_activations': activation_captures[name].get_mean_activations().cpu(),
+                'scaler_row': activation_captures[name].get_scaler().cpu()
+            }
+            self.original_weights[layer_key] = W_dense.clone().cpu()
 
             # Apply mask: zero out pruned weights
             subset[name].weight.data[mask] = 0
